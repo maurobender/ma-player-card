@@ -34,6 +34,7 @@ export interface HassEntityRegistryEntry {
   device_id?: string | null;
   platform?: string;
   translation_key?: string | null;
+  hidden?: boolean;
 }
 
 export interface Hass {

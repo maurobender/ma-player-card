@@ -1,11 +1,15 @@
 import { BackendHolder } from "../../backend/backend.js";
+import { OverlayHistory } from "../../components/overlay-history.js";
 import { bindSlider, setSlider } from "../../components/slider.js";
+import { pickSpeaker } from "../../components/speaker-picker.js";
 import { APPLE_RED } from "../../constants.js";
 import { parseLrc } from "../../services/lyrics/lrc-parser.js";
 import { fetchLyrics, firstArtist } from "../../services/lyrics/lrclib.js";
 import { PlaybackClock } from "../../services/playback-clock.js";
 import { TARGET_EVENT, Target } from "../../services/speaker-target.js";
+import { listSpeakers, speakerName } from "../../services/speakers.js";
 import { fmtTime } from "../../utils/format.js";
+import { haptic } from "../../utils/haptic.js";
 import { esc } from "../../utils/html.js";
 import { nextInstanceId } from "../../utils/ids.js";
 import { VERSION } from "../../version.js";
@@ -36,7 +40,6 @@ export class MaPlayerCard extends HTMLElement {
     this._lyricIdx = -1;
     this._backends = new BackendHolder(() => this._hass);
     this._clock = new PlaybackClock((msg) => this._dbg(msg));
-    this._onPopState = this._onPopState.bind(this);
     this._onTargetEvent = (e) => {
       if (this._config && e.detail.entity === this._config.entity) {
         this._target = e.detail.target;
@@ -81,18 +84,16 @@ export class MaPlayerCard extends HTMLElement {
   }
 
   connectedCallback() {
-    window.addEventListener("popstate", this._onPopState);
     window.addEventListener(TARGET_EVENT, this._onTargetEvent);
     clearInterval(this._timer);
     this._timer = setInterval(() => this._tick(), 500);
   }
 
   disconnectedCallback() {
-    window.removeEventListener("popstate", this._onPopState);
     window.removeEventListener(TARGET_EVENT, this._onTargetEvent);
     clearInterval(this._timer);
     clearTimeout(this._queueTimer);
-    if (this._np && this._np.open) this._np.close();
+    if (this._npOverlay) this._npOverlay.close();
   }
 
   _browserConfig() {
@@ -268,7 +269,10 @@ export class MaPlayerCard extends HTMLElement {
         </div>
       </dialog>
 
-      <ma-browser-card id="browser"></ma-browser-card>`;
+      <ma-browser-card id="browser"></ma-browser-card>
+      <!-- Se abren sobre "Reproduciendo", que siempre es oscuro -->
+      <ma-player-action-sheet id="sheet" dark></ma-player-action-sheet>
+      <ma-player-toast id="toast" dark></ma-player-toast>`;
 
     const $ = (id) => this.shadowRoot.getElementById(id);
     this._els = {
@@ -299,6 +303,9 @@ export class MaPlayerCard extends HTMLElement {
       debug: $("npDebug"),
     };
     this._np = this._els.np;
+    this._npOverlay = new OverlayHistory(this._np, `${this._id}:np`);
+    this._sheet = $("sheet");
+    this._toast = $("toast");
 
     // Buscador interno (mismo componente que la tarjeta de búsqueda, sin tarjeta propia)
     this._browser = $("browser");
@@ -317,8 +324,7 @@ export class MaPlayerCard extends HTMLElement {
       else this._browser.open(); // nada sonando: directo al buscador
     });
     $("npClose").addEventListener("click", () => this._np.close());
-    this._np.addEventListener("close", () => this._onNpClosed());
-    $("npSpeaker").addEventListener("click", () => this._browser._openSpeakers());
+    $("npSpeaker").addEventListener("click", () => this._openSpeakers());
     this._els.fav.addEventListener("click", () => this._favorite());
     this._bindQueue();
 
@@ -393,7 +399,7 @@ export class MaPlayerCard extends HTMLElement {
     this._syncClock(st); // siempre, aunque nada visible haya cambiado
     const playing = this._isPlaying(st);
     const pic = this._picture(st);
-    const name = this._browser ? this._browser._speakerName(this._entity()) : this._entity();
+    const name = speakerName(this._hass, this._entity());
     const sig = [
       this._entity(),
       st && st.state,
@@ -475,28 +481,21 @@ export class MaPlayerCard extends HTMLElement {
   // ---------- Pantalla completa ----------
 
   _openNp() {
-    if (this._np.open) return;
+    // Con entrada en el historial: el botón "atrás" de Android cierra la pantalla
+    if (!this._npOverlay.open()) return;
     this._haptic("light");
-    this._np.showModal();
-    history.pushState({ ...(history.state || {}), maPlayer: this._id }, "");
-    this._pushedState = true;
     this._sig = "";
     this._update();
     this._refreshNp();
   }
 
-  _onNpClosed() {
-    if (this._pushedState) {
-      this._pushedState = false;
-      history.back();
-    }
-  }
-
-  _onPopState() {
-    if (this._np && this._np.open && (!history.state || history.state.maPlayer !== this._id)) {
-      this._pushedState = false;
-      this._np.close();
-    }
+  async _openSpeakers() {
+    const ids = listSpeakers(this._hass, this._config.entity, this._config.speakers);
+    const id = await pickSpeaker(this._sheet, this._hass, ids, this._entity());
+    if (!id) return;
+    // Avisa a todas las cards de esta entidad (esta incluida, ver _onTargetEvent)
+    Target.save(this._config.entity, id === this._config.entity ? null : id);
+    this._haptic("selection");
   }
 
   _refreshNp() {
@@ -586,7 +585,7 @@ export class MaPlayerCard extends HTMLElement {
     const ent = this._entity();
     const remove = !!this._fav;
     if (remove && !be.can.unfavorite) {
-      this._browser._showToast(item, "Ya es favorita · para quitarla, usá Music Assistant", "mdi:heart");
+      this._showToast(item, "Ya es favorita · para quitarla, usá Music Assistant", "mdi:heart");
       return;
     }
     this._fav = !remove;
@@ -596,16 +595,12 @@ export class MaPlayerCard extends HTMLElement {
     try {
       if (remove) await be.favorites.unfavorite(ent);
       else await be.favorites.favorite(ent);
-      this._browser._showToast(
-        item,
-        remove ? "Quitada de favoritos" : "Agregada a favoritos",
-        remove ? "mdi:heart-broken" : "mdi:heart",
-      );
+      this._showToast(item, remove ? "Quitada de favoritos" : "Agregada a favoritos", remove ? "mdi:heart-broken" : "mdi:heart");
     } catch (err) {
       this._fav = remove;
       this._renderFav();
       const msg = (err && err.message) || String(err);
-      this._browser._showToast(item, `No se pudo ${remove ? "quitar" : "agregar"}: ${msg}`, "mdi:alert-circle", true);
+      this._showToast(item, `No se pudo ${remove ? "quitar" : "agregar"}: ${msg}`, "mdi:alert-circle", true);
     }
   }
 
@@ -767,7 +762,7 @@ export class MaPlayerCard extends HTMLElement {
     } catch (err) {
       console.error(`[ma-player-card] ${label}`, err);
       this._queue = backup;
-      this._browser._showToast({ name: label }, (err && err.message) || String(err), "mdi:alert-circle", true);
+      this._showToast({ name: label }, (err && err.message) || String(err), "mdi:alert-circle", true);
     }
     this._qBusy = false;
     this._renderQueue();
@@ -806,14 +801,9 @@ export class MaPlayerCard extends HTMLElement {
     this._haptic("light");
     try {
       await this._backend().queue.play(this._entity(), item.id);
-      this._browser._showToast({ name: item.name, image: item.image }, "Reproduciendo", "mdi:play-circle");
+      this._showToast({ name: item.name, image: item.image }, "Reproduciendo", "mdi:play-circle");
     } catch (err) {
-      this._browser._showToast(
-        { name: item.name, image: item.image },
-        (err && err.message) || String(err),
-        "mdi:alert-circle",
-        true,
-      );
+      this._showToast({ name: item.name, image: item.image }, (err && err.message) || String(err), "mdi:alert-circle", true);
     }
   }
   // ---------- Letra sincronizada ----------
@@ -903,7 +893,11 @@ export class MaPlayerCard extends HTMLElement {
     else el.scrollTo({ top: 0, behavior: "smooth" }); // antes de la primera línea (intro o volver al inicio)
   }
 
+  _showToast(it, text, icon, error = false) {
+    this._toast.show({ title: it.name, image: it.image, text, icon, error });
+  }
+
   _haptic(kind) {
-    this.dispatchEvent(new CustomEvent("haptic", { detail: kind, bubbles: true, composed: true }));
+    haptic(this, kind);
   }
 }

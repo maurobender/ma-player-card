@@ -10,6 +10,8 @@
 
 import { MaBrowserCard } from "./cards/browser-card/browser-card.js";
 import { MaPlayerCard } from "./cards/player-card/player-card.js";
+import { MaActionSheet } from "./components/action-sheet.js";
+import { MaToast } from "./components/toast.js";
 import { VERSION } from "./version.js";
 
 interface CustomCardInfo {
@@ -29,6 +31,9 @@ declare global {
 const defineOnce = (name: string, cls: CustomElementConstructor) => {
   if (!customElements.get(name)) customElements.define(name, cls);
 };
+// Componentes compartidos primero: las cards los usan apenas se crean
+defineOnce("ma-player-toast", MaToast);
+defineOnce("ma-player-action-sheet", MaActionSheet);
 defineOnce("ma-browser-card", MaBrowserCard);
 defineOnce("ma-player-card", MaPlayerCard);
 

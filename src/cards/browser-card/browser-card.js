@@ -4,6 +4,8 @@
  */
 
 import { BackendHolder } from "../../backend/backend.js";
+import { OverlayHistory } from "../../components/overlay-history.js";
+import { pickSpeaker } from "../../components/speaker-picker.js";
 import {
   APPLE_RED,
   AUTO_TILE_PX,
@@ -15,11 +17,12 @@ import {
   LONG_PRESS_MS,
   MIN_QUERY,
   MIN_TILE_PX,
-  STATE_LABELS,
   TYPES,
 } from "../../constants.js";
 import { TARGET_EVENT, Target } from "../../services/speaker-target.js";
+import { listSpeakers, speakerName } from "../../services/speakers.js";
 import { names } from "../../utils/format.js";
+import { haptic } from "../../utils/haptic.js";
 import { esc } from "../../utils/html.js";
 import { nextInstanceId } from "../../utils/ids.js";
 import { STYLES } from "./browser-card.styles.js";
@@ -41,7 +44,6 @@ export class MaBrowserCard extends HTMLElement {
     this._homeStatus = "idle"; // idle | loading | ok | error
     this._homeLoadedAt = 0;
     this._target = null; // parlante elegido en el selector
-    this._onPopState = this._onPopState.bind(this);
     // Otra tarjeta (o el reproductor) cambió el parlante de esta misma entidad
     this._onTargetEvent = (e) => {
       if (this._config && e.detail.entity === this._config.entity) {
@@ -107,19 +109,16 @@ export class MaBrowserCard extends HTMLElement {
   }
 
   connectedCallback() {
-    window.addEventListener("popstate", this._onPopState);
     window.addEventListener(TARGET_EVENT, this._onTargetEvent);
     if (this._wrap && this._ro) this._ro.observe(this._wrap);
   }
 
   disconnectedCallback() {
-    window.removeEventListener("popstate", this._onPopState);
     window.removeEventListener(TARGET_EVENT, this._onTargetEvent);
     clearTimeout(this._debounce);
     clearTimeout(this._lpTimer);
-    clearTimeout(this._toastTimer);
     if (this._ro) this._ro.disconnect();
-    if (this._full && this._full.open) this._full.close();
+    if (this._fullOverlay) this._fullOverlay.close();
   }
 
   // ---------- Render ----------
@@ -194,8 +193,8 @@ export class MaBrowserCard extends HTMLElement {
         <dialog id="full" class="full"><div class="full-bg" id="fullBg"></div><div class="full-shade"></div>${browser}</dialog>`
           : `<ha-card class="inline-card">${browser}</ha-card>`
       }
-      <dialog id="menu" class="menu"></dialog>
-      <div id="toast" class="toast" popover="manual" role="status"></div>`;
+      <ma-player-action-sheet id="menu"></ma-player-action-sheet>
+      <ma-player-toast id="toast"></ma-player-toast>`;
 
     const $ = (id) => this.shadowRoot.getElementById(id);
     this._wrap = this.shadowRoot.querySelector(".wrap");
@@ -204,6 +203,7 @@ export class MaBrowserCard extends HTMLElement {
     this._menu = $("menu");
     this._toast = $("toast");
     this._full = $("full");
+    this._fullOverlay = this._full ? new OverlayHistory(this._full, `${this._id}:full`) : null;
     this._applyArtwork();
     this._launcherSub = $("lsub");
     this._speakerLabel = $("speakerName");
@@ -242,9 +242,6 @@ export class MaBrowserCard extends HTMLElement {
       if (tab && tab.dataset.type !== this._type) this._setType(tab.dataset.type);
     });
     this._bindGrid();
-    this._menu.addEventListener("click", (e) => {
-      if (e.target === this._menu) this._menu.close(); // toque en el fondo
-    });
 
     if (!this._ro) this._ro = new ResizeObserver(() => this._updateColumns());
     this._ro.observe(this._wrap);
@@ -281,31 +278,17 @@ export class MaBrowserCard extends HTMLElement {
   // ---------- Pantalla completa ----------
 
   _openFull() {
-    if (!this._full || this._full.open) return;
+    // Con entrada en el historial: el botón "atrás" de Android cierra el buscador
+    if (!this._fullOverlay || !this._fullOverlay.open()) return;
     this._haptic("light");
-    this._full.showModal();
-    // Entrada en el historial: el botón "atrás" de Android cierra el buscador
-    history.pushState({ ...(history.state || {}), maBrowser: this._id }, "");
-    this._pushedState = true;
     this._updateColumns();
     this._loadHome();
     // Con la vista inicial a la vista, no abrimos el teclado: se toca el buscador para escribir.
   }
 
   _onFullClosed() {
-    if (this._menu.open) this._menu.close();
+    this._menu.close();
     this._input.blur();
-    if (this._pushedState) {
-      this._pushedState = false;
-      history.back();
-    }
-  }
-
-  _onPopState() {
-    if (this._full && this._full.open && (!history.state || history.state.maBrowser !== this._id)) {
-      this._pushedState = false; // el navegador ya volvió atrás
-      this._full.close();
-    }
   }
 
   // ---------- Cuadrícula / lista ----------
@@ -522,15 +505,7 @@ export class MaBrowserCard extends HTMLElement {
   // ---------- Selector de parlante ----------
 
   _speakers() {
-    const hass = this._hass;
-    if (!hass) return [];
-    const list =
-      this._config.speakers ||
-      Object.keys(hass.entities || {}).filter(
-        (id) => id.startsWith("media_player.") && hass.entities[id].platform === "music_assistant" && !hass.entities[id].hidden,
-      );
-    if (!list.includes(this._config.entity)) list.unshift(this._config.entity);
-    return list.filter((id) => hass.states[id]);
+    return listSpeakers(this._hass, this._config.entity, this._config.speakers);
   }
 
   _targetEntity() {
@@ -550,57 +525,11 @@ export class MaBrowserCard extends HTMLElement {
     if (this._speakerLabel) this._speakerLabel.textContent = this._speakerName();
   }
 
-  _openSpeakers() {
-    const current = this._targetEntity();
-    const row = (id) => {
-      const st = this._hass.states[id];
-      const unavailable = st.state === "unavailable";
-      const playing =
-        st.state === "playing" && st.attributes.media_title
-          ? `${st.attributes.media_title}${st.attributes.media_artist ? ` · ${st.attributes.media_artist}` : ""}`
-          : STATE_LABELS[st.state] || st.state;
-      return `<button class="m-opt spk ${id === current ? "sel" : ""}" data-id="${esc(id)}" ${unavailable ? "disabled" : ""}>
-        <ha-icon class="spk-icon ${st.state === "playing" ? "on" : ""}" icon="${st.state === "playing" ? "mdi:speaker-wireless" : "mdi:speaker"}"></ha-icon>
-        <span class="spk-text"><span class="spk-name">${esc(st.attributes.friendly_name || id)}</span>
-          <span class="spk-sub">${esc(playing)}</span></span>
-        ${id === current ? `<ha-icon class="spk-check" icon="mdi:check"></ha-icon>` : ""}
-      </button>`;
-    };
-    // Disponibles primero; los no disponibles van al final, plegados.
-    // El parlante elegido se muestra siempre arriba, aunque no esté disponible.
-    const all = this._speakers();
-    const isOff = (id) => this._hass.states[id].state === "unavailable" && id !== current;
-    const on = all.filter((id) => !isOff(id));
-    const off = all.filter(isOff);
-    this._menu.innerHTML = `
-      <div class="sheet">
-        <div class="m-head"><div class="m-meta"><div class="title">Reproducir en</div></div></div>
-        ${on.map(row).join("")}
-        ${
-          off.length
-            ? `
-        <button class="m-opt off-toggle" data-k="toggle" aria-expanded="false">
-          <span>No disponibles (${off.length})</span><ha-icon icon="mdi:chevron-down"></ha-icon></button>
-        <div class="off-list">${off.map(row).join("")}</div>`
-            : ""
-        }
-      </div>
-      <button class="sheet m-cancel" data-k="cancel">Cancelar</button>`;
-    for (const b of this._menu.querySelectorAll("button")) {
-      b.addEventListener("click", () => {
-        if (b.dataset.k === "toggle") {
-          const open = b.getAttribute("aria-expanded") !== "true";
-          b.setAttribute("aria-expanded", open);
-          return;
-        }
-        this._menu.close();
-        if (b.dataset.id) {
-          this._setTarget(b.dataset.id);
-          this._haptic("selection");
-        }
-      });
-    }
-    this._menu.showModal();
+  async _openSpeakers() {
+    const id = await pickSpeaker(this._menu, this._hass, this._speakers(), this._targetEntity());
+    if (!id) return;
+    this._setTarget(id);
+    this._haptic("selection");
   }
 
   // ---------- Búsqueda ----------
@@ -732,45 +661,23 @@ export class MaBrowserCard extends HTMLElement {
     });
   }
 
-  _openMenu(it, el) {
+  async _openMenu(it, el) {
     if (!it) return;
     const type = this._typeOf(it);
     const t = TYPES[type];
-    const sub = this._subtitle(it, type);
-    const opts = [
-      ["now", "mdi:play", "Reproducir ahora"],
-      ...(t.noQueue
-        ? []
-        : [
-            ["next", "mdi:playlist-play", "Reproducir a continuación"],
-            ["add", "mdi:playlist-plus", "Agregar a la cola"],
-          ]),
-    ];
-    this._menu.innerHTML = `
-      <div class="sheet">
-        <div class="m-head">
-          <div class="m-art ${t.round ? "round" : ""}">${
-            it.image ? `<img src="${esc(it.image)}" alt="" />` : `<ha-icon icon="${t.icon}"></ha-icon>`
-          }</div>
-          <div class="m-meta"><div class="title">${esc(it.name)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div>
-        </div>
-        ${opts
-          .map(
-            ([k, icon, label]) =>
-              `<button class="m-opt" data-k="${k}"><span>${label}</span><ha-icon icon="${icon}"></ha-icon></button>`,
-          )
-          .join("")}
-      </div>
-      <button class="sheet m-cancel" data-k="cancel">Cancelar</button>`;
-    for (const b of this._menu.querySelectorAll("button")) {
-      b.addEventListener("click", () => {
-        this._menu.close();
-        const k = b.dataset.k;
-        if (k === "cancel") return;
-        this._play(it, k === "now" ? null : k, el);
-      });
-    }
-    this._menu.showModal();
+    const k = await this._menu.show({
+      header: { title: it.name, subtitle: this._subtitle(it, type), image: it.image, icon: t.icon, round: t.round },
+      actions: [
+        { key: "now", label: "Reproducir ahora", icon: "mdi:play" },
+        ...(t.noQueue
+          ? []
+          : [
+              { key: "next", label: "Reproducir a continuación", icon: "mdi:playlist-play" },
+              { key: "add", label: "Agregar a la cola", icon: "mdi:playlist-plus" },
+            ]),
+      ],
+    });
+    if (k) this._play(it, k === "now" ? null : k, el);
   }
 
   // ---------- Reproducción ----------
@@ -813,40 +720,14 @@ export class MaBrowserCard extends HTMLElement {
   }
 
   _speakerName(entityId = this._targetEntity()) {
-    const st = this._hass && entityId && this._hass.states[entityId];
-    return (st && st.attributes.friendly_name) || entityId || "";
+    return speakerName(this._hass, entityId);
   }
 
-  _showToast(it, text, icon, isError = false) {
-    const t = this._toast;
-    t.className = `toast ${isError ? "error" : ""}`;
-    t.innerHTML = `
-      ${it.image ? `<img src="${esc(it.image)}" alt="" />` : `<ha-icon icon="${icon}"></ha-icon>`}
-      <span class="t-text"><span class="t-title">${esc(it.name)}</span><span class="t-sub">${esc(text)}</span></span>
-      ${it.image ? `<ha-icon class="t-icon" icon="${icon}"></ha-icon>` : ""}`;
-    clearTimeout(this._toastTimer);
-    try {
-      if (t.showPopover) {
-        if (t.matches(":popover-open")) t.hidePopover();
-        t.showPopover();
-      } else t.classList.add("show");
-    } catch (_) {
-      t.classList.add("show");
-    }
-    this._toastTimer = setTimeout(
-      () => {
-        try {
-          if (t.hidePopover && t.matches(":popover-open")) t.hidePopover();
-        } catch (_) {
-          /* nada */
-        }
-        t.classList.remove("show");
-      },
-      isError ? 4500 : 2600,
-    );
+  _showToast(it, text, icon, error = false) {
+    this._toast.show({ title: it.name, image: it.image, text, icon, error });
   }
 
   _haptic(kind) {
-    this.dispatchEvent(new CustomEvent("haptic", { detail: kind, bubbles: true, composed: true }));
+    haptic(this, kind);
   }
 }

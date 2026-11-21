@@ -370,6 +370,89 @@ var BackendHolder = class {
   }
 };
 
+// src/components/overlay-history.ts
+var OverlayHistory = class {
+  dialog;
+  key;
+  pushed = false;
+  constructor(dialog, id) {
+    this.dialog = dialog;
+    this.key = `ma:${id}`;
+    dialog.addEventListener("close", this.onClose);
+  }
+  get isOpen() {
+    return this.dialog.open;
+  }
+  open() {
+    if (this.dialog.open) return false;
+    this.dialog.showModal();
+    history.pushState({ ...history.state || {}, [this.key]: true }, "");
+    this.pushed = true;
+    window.addEventListener("popstate", this.onPopState);
+    return true;
+  }
+  close() {
+    if (this.dialog.open) this.dialog.close();
+  }
+  onClose = () => {
+    window.removeEventListener("popstate", this.onPopState);
+    if (this.pushed) {
+      this.pushed = false;
+      history.back();
+    }
+  };
+  onPopState = () => {
+    if (this.dialog.open && !history.state?.[this.key]) {
+      this.pushed = false;
+      this.dialog.close();
+    }
+  };
+};
+
+// src/services/speakers.ts
+function listSpeakers(hass, entity, configured) {
+  if (!hass) return [];
+  const list = configured ? [...configured] : Object.keys(hass.entities || {}).filter(
+    (id) => id.startsWith("media_player.") && hass.entities?.[id]?.platform === "music_assistant" && !hass.entities[id].hidden
+  );
+  if (!list.includes(entity)) list.unshift(entity);
+  return list.filter((id) => hass.states[id]);
+}
+function speakerName(hass, entityId) {
+  if (!entityId) return "";
+  const st = hass?.states[entityId];
+  return st?.attributes.friendly_name || entityId;
+}
+
+// src/components/speaker-picker.ts
+function speakerSheet(hass, ids, current) {
+  const choice = (id) => {
+    const st = hass.states[id];
+    const state = st?.state ?? "unavailable";
+    const a = st?.attributes ?? {};
+    const playing = state === "playing";
+    return {
+      key: id,
+      label: speakerName(hass, id),
+      sublabel: playing && a.media_title ? `${a.media_title}${a.media_artist ? ` · ${a.media_artist}` : ""}` : STATE_LABELS[state] || state,
+      icon: playing ? "mdi:speaker-wireless" : "mdi:speaker",
+      active: playing,
+      selected: id === current,
+      disabled: state === "unavailable"
+    };
+  };
+  const isOff = (id) => hass.states[id]?.state === "unavailable" && id !== current;
+  const off = ids.filter(isOff);
+  return {
+    header: { title: "Reproducir en" },
+    choices: ids.filter((id) => !isOff(id)).map(choice),
+    more: off.length ? { label: `No disponibles (${off.length})`, choices: off.map(choice) } : void 0
+  };
+}
+function pickSpeaker(sheet, hass, ids, current) {
+  return sheet.show(speakerSheet(hass, ids, current));
+}
+
 // src/services/speaker-target.ts
 var TARGET_EVENT = "ma-player-card-target";
 var Target = {
@@ -391,6 +474,11 @@ var Target = {
   }
 };
 
+// src/utils/haptic.ts
+var haptic = (el, kind) => {
+  el.dispatchEvent(new CustomEvent("haptic", { detail: kind, bubbles: true, composed: true }));
+};
+
 // src/utils/html.ts
 var ENTITIES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ENTITIES[c] ?? c);
@@ -399,17 +487,34 @@ var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ENTITIES[c] ?? c);
 var counter = 0;
 var nextInstanceId = () => ++counter;
 
+// src/components/theme.ts
+var BASE_VARS = `
+  --fill: color-mix(in srgb, var(--primary-text-color) 7%, transparent);       /* relleno gris iOS */
+  --fill-strong: color-mix(in srgb, var(--primary-text-color) 12%, transparent);
+  --sep: color-mix(in srgb, var(--primary-text-color) 12%, transparent);        /* líneas finas */
+  --glass: color-mix(in srgb, var(--card-background-color, #fff) 72%, transparent);
+  --glass-bg: color-mix(in srgb, var(--primary-background-color, #f2f2f7) 80%, transparent);
+  --blur: blur(30px) saturate(180%);
+`;
+var DARK_VARS = `
+  --primary-text-color: #fff;
+  --secondary-text-color: rgba(255, 255, 255, .62);
+  --primary-background-color: #1c1c1e;
+  --card-background-color: #2c2c2e;
+  --glass: color-mix(in srgb, #2c2c2e 72%, transparent);
+  --glass-bg: rgba(28, 28, 30, .2);
+  --fill: rgba(255, 255, 255, .1);
+  --fill-strong: rgba(255, 255, 255, .16);
+  --sep: rgba(255, 255, 255, .14);
+  color-scheme: dark;
+`;
+
 // src/cards/browser-card/browser-card.styles.js
 var STYLES = `
   :host {
     display: block;
     --accent: ${APPLE_RED};
-    --fill: color-mix(in srgb, var(--primary-text-color) 7%, transparent);       /* relleno gris iOS */
-    --fill-strong: color-mix(in srgb, var(--primary-text-color) 12%, transparent);
-    --sep: color-mix(in srgb, var(--primary-text-color) 12%, transparent);        /* líneas finas */
-    --glass: color-mix(in srgb, var(--card-background-color, #fff) 72%, transparent);
-    --glass-bg: color-mix(in srgb, var(--primary-background-color, #f2f2f7) 80%, transparent);
-    --blur: blur(30px) saturate(180%);
+    ${BASE_VARS}
     --art-radius: 10px;
   }
 
@@ -440,15 +545,7 @@ var STYLES = `
 
   /* Con algo sonando: mismo fondo que "Reproduciendo" (portada desenfocada, texto claro) */
   :host([artwork]) {
-    --primary-text-color: #fff;
-    --secondary-text-color: rgba(255, 255, 255, .62);
-    --primary-background-color: #1c1c1e;
-    --card-background-color: #2c2c2e;
-    --glass-bg: rgba(28, 28, 30, .2);
-    --fill: rgba(255, 255, 255, .1);
-    --fill-strong: rgba(255, 255, 255, .16);
-    --sep: rgba(255, 255, 255, .14);
-    color-scheme: dark;
+    ${DARK_VARS}
   }
   :host([artwork]) dialog.full { background: #1c1c1e; }
   .full-bg, .full-shade { display: none; position: absolute; pointer-events: none; }
@@ -591,78 +688,6 @@ var STYLES = `
   .retry { margin-top: 18px; height: 44px; padding: 0 24px; border-radius: 999px; border: 0;
     background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
 
-  /* Menú: hoja de acciones iOS */
-  dialog.menu { border: 0; padding: 0; background: transparent; overflow: visible;
-    width: min(400px, calc(100vw - 24px)); color: var(--primary-text-color); }
-  dialog.menu::backdrop { background: rgba(0, 0, 0, .3);
-    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-  dialog.menu[open] { animation: menuIn .22s cubic-bezier(.2, .9, .3, 1.2); }
-  @keyframes menuIn { from { transform: scale(.94); opacity: 0; } to { transform: none; opacity: 1; } }
-  .sheet { display: block; width: 100%; border-radius: 16px; overflow: hidden;
-    background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, .28); }
-  .m-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: .5px solid var(--sep); }
-  .m-art { width: 56px; height: 56px; flex: 0 0 56px; border-radius: 8px; overflow: hidden;
-    background: var(--fill); display: grid; place-items: center; }
-  .m-art.round { border-radius: 50%; }
-  .m-art img { width: 100%; height: 100%; object-fit: cover; }
-  .m-meta { min-width: 0; }
-  .m-meta .title { font-weight: 600; font-size: 16px; }
-  .m-opt { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    height: 54px; padding: 0 18px; border: 0; cursor: pointer; font: inherit; font-size: 17px;
-    background: transparent; color: var(--primary-text-color); text-align: left; }
-  .m-opt + .m-opt { border-top: .5px solid var(--sep); }
-  .m-opt ha-icon { color: var(--accent); }
-  .m-opt:active { background: var(--fill); }
-  .m-opt:focus, .m-cancel:focus { outline: none; }
-  .m-opt:focus-visible { background: var(--fill); }
-  .m-cancel { margin-top: 8px; height: 56px; border: 0; cursor: pointer; font: inherit; font-size: 17px;
-    font-weight: 600; color: var(--accent); }
-  .m-cancel:active { filter: brightness(.95); }
-  /* Filas del selector de parlante */
-  .spk { justify-content: flex-start; height: auto; min-height: 60px; padding: 8px 18px; }
-  .spk[disabled] { opacity: .45; cursor: default; }
-  .spk .spk-icon { color: var(--secondary-text-color); }
-  .spk .spk-icon.on { color: var(--accent); }
-  .spk-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  .spk-name { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .spk-sub { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .spk.sel .spk-name { font-weight: 600; }
-  .spk .spk-check { color: var(--accent); }
-  .off-toggle { color: var(--secondary-text-color); font-size: 15px; height: 48px; }
-  .off-toggle ha-icon { color: var(--secondary-text-color); transition: transform .2s; }
-  .off-toggle[aria-expanded="true"] ha-icon { transform: rotate(180deg); }
-  .off-list { display: none; }
-  .off-toggle[aria-expanded="true"] + .off-list { display: block; }
-  .off-list .m-opt { border-top: .5px solid var(--sep); }
-  dialog.menu { max-height: calc(100dvh - 32px); }
-  dialog.menu .sheet:first-child { max-height: calc(100dvh - 120px); overflow-y: auto; }
-
-  @media (max-width: 600px) {
-    dialog.menu { margin: auto auto max(12px, env(safe-area-inset-bottom)); }
-    dialog.menu[open] { animation: sheetUp .28s cubic-bezier(.2, .9, .3, 1); }
-    @keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
-  }
-
-  /* Aviso flotante (toast) de vidrio */
-  .toast { position: fixed; inset: auto auto max(24px, env(safe-area-inset-bottom)) 50%; transform: translateX(-50%);
-    margin: 0; display: flex; align-items: center; gap: 12px; width: max-content;
-    max-width: min(440px, calc(100vw - 32px)); padding: 8px 18px 8px 8px; border: .5px solid var(--sep);
-    border-radius: 18px; color: var(--primary-text-color);
-    background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
-    box-shadow: 0 10px 36px rgba(0, 0, 0, .22); }
-  .toast:not(:popover-open):not(.show) { display: none; }
-  .toast:popover-open, .toast.show { animation: toastIn .3s cubic-bezier(.2, .9, .3, 1.2); }
-  @keyframes toastIn { from { transform: translate(-50%, 16px); opacity: 0; } to { transform: translateX(-50%); opacity: 1; } }
-  .toast img { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; }
-  .toast > ha-icon:first-child { margin-left: 8px; color: var(--accent); }
-  .t-text { display: flex; flex-direction: column; min-width: 0; }
-  .t-title { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .t-sub { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .t-icon { color: var(--accent); margin-left: 4px; }
-  .toast.error { border-color: color-mix(in srgb, var(--error-color, #ff3b30) 50%, transparent); }
-  .toast.error .t-icon, .toast.error > ha-icon:first-child { color: var(--error-color, #ff3b30); }
-
   @container (max-width: 480px) {
     .grid { gap: 16px 12px; }
     h1 { font-size: 30px; }
@@ -687,7 +712,6 @@ var MaBrowserCard = class extends HTMLElement {
     this._homeStatus = "idle";
     this._homeLoadedAt = 0;
     this._target = null;
-    this._onPopState = this._onPopState.bind(this);
     this._onTargetEvent = (e) => {
       if (this._config && e.detail.entity === this._config.entity) {
         this._target = e.detail.target;
@@ -741,18 +765,15 @@ var MaBrowserCard = class extends HTMLElement {
     return { entity: ent || "media_player.salon" };
   }
   connectedCallback() {
-    window.addEventListener("popstate", this._onPopState);
     window.addEventListener(TARGET_EVENT, this._onTargetEvent);
     if (this._wrap && this._ro) this._ro.observe(this._wrap);
   }
   disconnectedCallback() {
-    window.removeEventListener("popstate", this._onPopState);
     window.removeEventListener(TARGET_EVENT, this._onTargetEvent);
     clearTimeout(this._debounce);
     clearTimeout(this._lpTimer);
-    clearTimeout(this._toastTimer);
     if (this._ro) this._ro.disconnect();
-    if (this._full && this._full.open) this._full.close();
+    if (this._fullOverlay) this._fullOverlay.close();
   }
   // ---------- Render ----------
   _renderShell() {
@@ -804,8 +825,8 @@ var MaBrowserCard = class extends HTMLElement {
           </button>
         </ha-card>` : ""}
         <dialog id="full" class="full"><div class="full-bg" id="fullBg"></div><div class="full-shade"></div>${browser}</dialog>` : `<ha-card class="inline-card">${browser}</ha-card>`}
-      <dialog id="menu" class="menu"></dialog>
-      <div id="toast" class="toast" popover="manual" role="status"></div>`;
+      <ma-player-action-sheet id="menu"></ma-player-action-sheet>
+      <ma-player-toast id="toast"></ma-player-toast>`;
     const $ = (id) => this.shadowRoot.getElementById(id);
     this._wrap = this.shadowRoot.querySelector(".wrap");
     this._body = $("body");
@@ -813,6 +834,7 @@ var MaBrowserCard = class extends HTMLElement {
     this._menu = $("menu");
     this._toast = $("toast");
     this._full = $("full");
+    this._fullOverlay = this._full ? new OverlayHistory(this._full, `${this._id}:full`) : null;
     this._applyArtwork();
     this._launcherSub = $("lsub");
     this._speakerLabel = $("speakerName");
@@ -848,9 +870,6 @@ var MaBrowserCard = class extends HTMLElement {
       if (tab && tab.dataset.type !== this._type) this._setType(tab.dataset.type);
     });
     this._bindGrid();
-    this._menu.addEventListener("click", (e) => {
-      if (e.target === this._menu) this._menu.close();
-    });
     if (!this._ro) this._ro = new ResizeObserver(() => this._updateColumns());
     this._ro.observe(this._wrap);
     this._renderBody();
@@ -880,27 +899,14 @@ var MaBrowserCard = class extends HTMLElement {
   }
   // ---------- Pantalla completa ----------
   _openFull() {
-    if (!this._full || this._full.open) return;
+    if (!this._fullOverlay || !this._fullOverlay.open()) return;
     this._haptic("light");
-    this._full.showModal();
-    history.pushState({ ...history.state || {}, maBrowser: this._id }, "");
-    this._pushedState = true;
     this._updateColumns();
     this._loadHome();
   }
   _onFullClosed() {
-    if (this._menu.open) this._menu.close();
+    this._menu.close();
     this._input.blur();
-    if (this._pushedState) {
-      this._pushedState = false;
-      history.back();
-    }
-  }
-  _onPopState() {
-    if (this._full && this._full.open && (!history.state || history.state.maBrowser !== this._id)) {
-      this._pushedState = false;
-      this._full.close();
-    }
   }
   // ---------- Cuadrícula / lista ----------
   _updateColumns() {
@@ -1089,13 +1095,7 @@ var MaBrowserCard = class extends HTMLElement {
   }
   // ---------- Selector de parlante ----------
   _speakers() {
-    const hass = this._hass;
-    if (!hass) return [];
-    const list = this._config.speakers || Object.keys(hass.entities || {}).filter(
-      (id) => id.startsWith("media_player.") && hass.entities[id].platform === "music_assistant" && !hass.entities[id].hidden
-    );
-    if (!list.includes(this._config.entity)) list.unshift(this._config.entity);
-    return list.filter((id) => hass.states[id]);
+    return listSpeakers(this._hass, this._config.entity, this._config.speakers);
   }
   _targetEntity() {
     return this._target || this._config && this._config.entity;
@@ -1110,48 +1110,11 @@ var MaBrowserCard = class extends HTMLElement {
     if (this._launcherSub) this._launcherSub.textContent = this._launcherSubtitle();
     if (this._speakerLabel) this._speakerLabel.textContent = this._speakerName();
   }
-  _openSpeakers() {
-    const current = this._targetEntity();
-    const row = (id) => {
-      const st = this._hass.states[id];
-      const unavailable = st.state === "unavailable";
-      const playing = st.state === "playing" && st.attributes.media_title ? `${st.attributes.media_title}${st.attributes.media_artist ? ` · ${st.attributes.media_artist}` : ""}` : STATE_LABELS[st.state] || st.state;
-      return `<button class="m-opt spk ${id === current ? "sel" : ""}" data-id="${esc(id)}" ${unavailable ? "disabled" : ""}>
-        <ha-icon class="spk-icon ${st.state === "playing" ? "on" : ""}" icon="${st.state === "playing" ? "mdi:speaker-wireless" : "mdi:speaker"}"></ha-icon>
-        <span class="spk-text"><span class="spk-name">${esc(st.attributes.friendly_name || id)}</span>
-          <span class="spk-sub">${esc(playing)}</span></span>
-        ${id === current ? `<ha-icon class="spk-check" icon="mdi:check"></ha-icon>` : ""}
-      </button>`;
-    };
-    const all = this._speakers();
-    const isOff = (id) => this._hass.states[id].state === "unavailable" && id !== current;
-    const on = all.filter((id) => !isOff(id));
-    const off = all.filter(isOff);
-    this._menu.innerHTML = `
-      <div class="sheet">
-        <div class="m-head"><div class="m-meta"><div class="title">Reproducir en</div></div></div>
-        ${on.map(row).join("")}
-        ${off.length ? `
-        <button class="m-opt off-toggle" data-k="toggle" aria-expanded="false">
-          <span>No disponibles (${off.length})</span><ha-icon icon="mdi:chevron-down"></ha-icon></button>
-        <div class="off-list">${off.map(row).join("")}</div>` : ""}
-      </div>
-      <button class="sheet m-cancel" data-k="cancel">Cancelar</button>`;
-    for (const b of this._menu.querySelectorAll("button")) {
-      b.addEventListener("click", () => {
-        if (b.dataset.k === "toggle") {
-          const open = b.getAttribute("aria-expanded") !== "true";
-          b.setAttribute("aria-expanded", open);
-          return;
-        }
-        this._menu.close();
-        if (b.dataset.id) {
-          this._setTarget(b.dataset.id);
-          this._haptic("selection");
-        }
-      });
-    }
-    this._menu.showModal();
+  async _openSpeakers() {
+    const id = await pickSpeaker(this._menu, this._hass, this._speakers(), this._targetEntity());
+    if (!id) return;
+    this._setTarget(id);
+    this._haptic("selection");
   }
   // ---------- Búsqueda ----------
   _onInput() {
@@ -1271,38 +1234,21 @@ var MaBrowserCard = class extends HTMLElement {
       }
     });
   }
-  _openMenu(it, el) {
+  async _openMenu(it, el) {
     if (!it) return;
     const type = this._typeOf(it);
     const t = TYPES[type];
-    const sub = this._subtitle(it, type);
-    const opts = [
-      ["now", "mdi:play", "Reproducir ahora"],
-      ...t.noQueue ? [] : [
-        ["next", "mdi:playlist-play", "Reproducir a continuación"],
-        ["add", "mdi:playlist-plus", "Agregar a la cola"]
+    const k = await this._menu.show({
+      header: { title: it.name, subtitle: this._subtitle(it, type), image: it.image, icon: t.icon, round: t.round },
+      actions: [
+        { key: "now", label: "Reproducir ahora", icon: "mdi:play" },
+        ...t.noQueue ? [] : [
+          { key: "next", label: "Reproducir a continuación", icon: "mdi:playlist-play" },
+          { key: "add", label: "Agregar a la cola", icon: "mdi:playlist-plus" }
+        ]
       ]
-    ];
-    this._menu.innerHTML = `
-      <div class="sheet">
-        <div class="m-head">
-          <div class="m-art ${t.round ? "round" : ""}">${it.image ? `<img src="${esc(it.image)}" alt="" />` : `<ha-icon icon="${t.icon}"></ha-icon>`}</div>
-          <div class="m-meta"><div class="title">${esc(it.name)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div>
-        </div>
-        ${opts.map(
-      ([k, icon, label]) => `<button class="m-opt" data-k="${k}"><span>${label}</span><ha-icon icon="${icon}"></ha-icon></button>`
-    ).join("")}
-      </div>
-      <button class="sheet m-cancel" data-k="cancel">Cancelar</button>`;
-    for (const b of this._menu.querySelectorAll("button")) {
-      b.addEventListener("click", () => {
-        this._menu.close();
-        const k = b.dataset.k;
-        if (k === "cancel") return;
-        this._play(it, k === "now" ? null : k, el);
-      });
-    }
-    this._menu.showModal();
+    });
+    if (k) this._play(it, k === "now" ? null : k, el);
   }
   // ---------- Reproducción ----------
   async _play(it, enqueueOverride, el) {
@@ -1341,38 +1287,13 @@ var MaBrowserCard = class extends HTMLElement {
     }
   }
   _speakerName(entityId = this._targetEntity()) {
-    const st = this._hass && entityId && this._hass.states[entityId];
-    return st && st.attributes.friendly_name || entityId || "";
+    return speakerName(this._hass, entityId);
   }
-  _showToast(it, text, icon, isError = false) {
-    const t = this._toast;
-    t.className = `toast ${isError ? "error" : ""}`;
-    t.innerHTML = `
-      ${it.image ? `<img src="${esc(it.image)}" alt="" />` : `<ha-icon icon="${icon}"></ha-icon>`}
-      <span class="t-text"><span class="t-title">${esc(it.name)}</span><span class="t-sub">${esc(text)}</span></span>
-      ${it.image ? `<ha-icon class="t-icon" icon="${icon}"></ha-icon>` : ""}`;
-    clearTimeout(this._toastTimer);
-    try {
-      if (t.showPopover) {
-        if (t.matches(":popover-open")) t.hidePopover();
-        t.showPopover();
-      } else t.classList.add("show");
-    } catch (_) {
-      t.classList.add("show");
-    }
-    this._toastTimer = setTimeout(
-      () => {
-        try {
-          if (t.hidePopover && t.matches(":popover-open")) t.hidePopover();
-        } catch (_) {
-        }
-        t.classList.remove("show");
-      },
-      isError ? 4500 : 2600
-    );
+  _showToast(it, text, icon, error = false) {
+    this._toast.show({ title: it.name, image: it.image, text, icon, error });
   }
   _haptic(kind) {
-    this.dispatchEvent(new CustomEvent("haptic", { detail: kind, bubbles: true, composed: true }));
+    haptic(this, kind);
   }
 };
 
@@ -1758,7 +1679,6 @@ var MaPlayerCard = class extends HTMLElement {
     this._lyricIdx = -1;
     this._backends = new BackendHolder(() => this._hass);
     this._clock = new PlaybackClock((msg) => this._dbg(msg));
-    this._onPopState = this._onPopState.bind(this);
     this._onTargetEvent = (e) => {
       if (this._config && e.detail.entity === this._config.entity) {
         this._target = e.detail.target;
@@ -1795,17 +1715,15 @@ var MaPlayerCard = class extends HTMLElement {
     return MaBrowserCard.getStubConfig(hass);
   }
   connectedCallback() {
-    window.addEventListener("popstate", this._onPopState);
     window.addEventListener(TARGET_EVENT, this._onTargetEvent);
     clearInterval(this._timer);
     this._timer = setInterval(() => this._tick(), 500);
   }
   disconnectedCallback() {
-    window.removeEventListener("popstate", this._onPopState);
     window.removeEventListener(TARGET_EVENT, this._onTargetEvent);
     clearInterval(this._timer);
     clearTimeout(this._queueTimer);
-    if (this._np && this._np.open) this._np.close();
+    if (this._npOverlay) this._npOverlay.close();
   }
   _browserConfig() {
     const { type, queue_limit, lyrics, lyrics_url, name, ...rest } = this._config;
@@ -1959,7 +1877,10 @@ var MaPlayerCard = class extends HTMLElement {
         </div>
       </dialog>
 
-      <ma-browser-card id="browser"></ma-browser-card>`;
+      <ma-browser-card id="browser"></ma-browser-card>
+      <!-- Se abren sobre "Reproduciendo", que siempre es oscuro -->
+      <ma-player-action-sheet id="sheet" dark></ma-player-action-sheet>
+      <ma-player-toast id="toast" dark></ma-player-toast>`;
     const $ = (id) => this.shadowRoot.getElementById(id);
     this._els = {
       mini: $("mini"),
@@ -1989,6 +1910,9 @@ var MaPlayerCard = class extends HTMLElement {
       debug: $("npDebug")
     };
     this._np = this._els.np;
+    this._npOverlay = new OverlayHistory(this._np, `${this._id}:np`);
+    this._sheet = $("sheet");
+    this._toast = $("toast");
     this._browser = $("browser");
     this._browser.setConfig(this._browserConfig());
     if (this._hass) this._browser.hass = this._hass;
@@ -2004,8 +1928,7 @@ var MaPlayerCard = class extends HTMLElement {
       else this._browser.open();
     });
     $("npClose").addEventListener("click", () => this._np.close());
-    this._np.addEventListener("close", () => this._onNpClosed());
-    $("npSpeaker").addEventListener("click", () => this._browser._openSpeakers());
+    $("npSpeaker").addEventListener("click", () => this._openSpeakers());
     this._els.fav.addEventListener("click", () => this._favorite());
     this._bindQueue();
     this._seekCtl = bindSlider(this._els.seek, {
@@ -2074,7 +1997,7 @@ var MaPlayerCard = class extends HTMLElement {
     this._syncClock(st);
     const playing = this._isPlaying(st);
     const pic = this._picture(st);
-    const name = this._browser ? this._browser._speakerName(this._entity()) : this._entity();
+    const name = speakerName(this._hass, this._entity());
     const sig = [
       this._entity(),
       st && st.state,
@@ -2142,26 +2065,18 @@ var MaPlayerCard = class extends HTMLElement {
   }
   // ---------- Pantalla completa ----------
   _openNp() {
-    if (this._np.open) return;
+    if (!this._npOverlay.open()) return;
     this._haptic("light");
-    this._np.showModal();
-    history.pushState({ ...history.state || {}, maPlayer: this._id }, "");
-    this._pushedState = true;
     this._sig = "";
     this._update();
     this._refreshNp();
   }
-  _onNpClosed() {
-    if (this._pushedState) {
-      this._pushedState = false;
-      history.back();
-    }
-  }
-  _onPopState() {
-    if (this._np && this._np.open && (!history.state || history.state.maPlayer !== this._id)) {
-      this._pushedState = false;
-      this._np.close();
-    }
+  async _openSpeakers() {
+    const ids = listSpeakers(this._hass, this._config.entity, this._config.speakers);
+    const id = await pickSpeaker(this._sheet, this._hass, ids, this._entity());
+    if (!id) return;
+    Target.save(this._config.entity, id === this._config.entity ? null : id);
+    this._haptic("selection");
   }
   _refreshNp() {
     clearTimeout(this._queueTimer);
@@ -2240,7 +2155,7 @@ var MaPlayerCard = class extends HTMLElement {
     const ent = this._entity();
     const remove = !!this._fav;
     if (remove && !be.can.unfavorite) {
-      this._browser._showToast(item, "Ya es favorita · para quitarla, usá Music Assistant", "mdi:heart");
+      this._showToast(item, "Ya es favorita · para quitarla, usá Music Assistant", "mdi:heart");
       return;
     }
     this._fav = !remove;
@@ -2250,16 +2165,12 @@ var MaPlayerCard = class extends HTMLElement {
     try {
       if (remove) await be.favorites.unfavorite(ent);
       else await be.favorites.favorite(ent);
-      this._browser._showToast(
-        item,
-        remove ? "Quitada de favoritos" : "Agregada a favoritos",
-        remove ? "mdi:heart-broken" : "mdi:heart"
-      );
+      this._showToast(item, remove ? "Quitada de favoritos" : "Agregada a favoritos", remove ? "mdi:heart-broken" : "mdi:heart");
     } catch (err) {
       this._fav = remove;
       this._renderFav();
       const msg = err && err.message || String(err);
-      this._browser._showToast(item, `No se pudo ${remove ? "quitar" : "agregar"}: ${msg}`, "mdi:alert-circle", true);
+      this._showToast(item, `No se pudo ${remove ? "quitar" : "agregar"}: ${msg}`, "mdi:alert-circle", true);
     }
   }
   // ---------- Cola ----------
@@ -2408,7 +2319,7 @@ var MaPlayerCard = class extends HTMLElement {
     } catch (err) {
       console.error(`[ma-player-card] ${label}`, err);
       this._queue = backup;
-      this._browser._showToast({ name: label }, err && err.message || String(err), "mdi:alert-circle", true);
+      this._showToast({ name: label }, err && err.message || String(err), "mdi:alert-circle", true);
     }
     this._qBusy = false;
     this._renderQueue();
@@ -2444,14 +2355,9 @@ var MaPlayerCard = class extends HTMLElement {
     this._haptic("light");
     try {
       await this._backend().queue.play(this._entity(), item.id);
-      this._browser._showToast({ name: item.name, image: item.image }, "Reproduciendo", "mdi:play-circle");
+      this._showToast({ name: item.name, image: item.image }, "Reproduciendo", "mdi:play-circle");
     } catch (err) {
-      this._browser._showToast(
-        { name: item.name, image: item.image },
-        err && err.message || String(err),
-        "mdi:alert-circle",
-        true
-      );
+      this._showToast({ name: item.name, image: item.image }, err && err.message || String(err), "mdi:alert-circle", true);
     }
   }
   // ---------- Letra sincronizada ----------
@@ -2533,8 +2439,196 @@ var MaPlayerCard = class extends HTMLElement {
     if (active) el.scrollTo({ top: active.offsetTop - el.clientHeight * 0.32, behavior: "smooth" });
     else el.scrollTo({ top: 0, behavior: "smooth" });
   }
+  _showToast(it, text, icon, error = false) {
+    this._toast.show({ title: it.name, image: it.image, text, icon, error });
+  }
   _haptic(kind) {
-    this.dispatchEvent(new CustomEvent("haptic", { detail: kind, bubbles: true, composed: true }));
+    haptic(this, kind);
+  }
+};
+
+// src/components/action-sheet.ts
+var STYLES2 = `
+  :host { display: contents; }
+  :host([dark]) { ${DARK_VARS} }
+  dialog { border: 0; padding: 0; background: transparent; overflow: visible;
+    width: min(400px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); color: var(--primary-text-color); }
+  dialog::backdrop { background: rgba(0, 0, 0, .3); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  dialog[open] { animation: menuIn .22s cubic-bezier(.2, .9, .3, 1.2); }
+  @keyframes menuIn { from { transform: scale(.94); opacity: 0; } to { transform: none; opacity: 1; } }
+  .sheet { display: block; width: 100%; border-radius: 16px; overflow: hidden;
+    background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, .28); }
+  .sheet:first-child { max-height: calc(100dvh - 120px); overflow-y: auto; }
+  .head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: .5px solid var(--sep); }
+  .art { width: 56px; height: 56px; flex: 0 0 56px; border-radius: 8px; overflow: hidden;
+    background: var(--fill); display: grid; place-items: center; }
+  .art.round { border-radius: 50%; }
+  .art img { width: 100%; height: 100%; object-fit: cover; }
+  .meta { min-width: 0; }
+  .title { font-weight: 600; font-size: 16px; }
+  .sub { font-size: 13px; color: var(--secondary-text-color); }
+  .opt { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    height: 54px; padding: 0 18px; border: 0; cursor: pointer; font: inherit; font-size: 17px;
+    background: transparent; color: var(--primary-text-color); text-align: left; }
+  .opt + .opt, .more-list .opt { border-top: .5px solid var(--sep); }
+  .opt ha-icon { color: var(--accent); }
+  .opt:active { background: var(--fill); }
+  .opt:focus, .cancel:focus { outline: none; }
+  .opt:focus-visible { background: var(--fill); }
+  .cancel { margin-top: 8px; height: 56px; border: 0; cursor: pointer; font: inherit; font-size: 17px;
+    font-weight: 600; color: var(--accent); }
+  .cancel:active { filter: brightness(.95); }
+  .choice { justify-content: flex-start; height: auto; min-height: 60px; padding: 8px 18px; }
+  .choice[disabled] { opacity: .45; cursor: default; }
+  .choice .c-icon { color: var(--secondary-text-color); }
+  .choice .c-icon.on { color: var(--accent); }
+  .c-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .c-name { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c-sub { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .choice.sel .c-name { font-weight: 600; }
+  .more-toggle { color: var(--secondary-text-color); font-size: 15px; height: 48px; }
+  .more-toggle ha-icon { color: var(--secondary-text-color); transition: transform .2s; }
+  .more-toggle[aria-expanded="true"] ha-icon { transform: rotate(180deg); }
+  .more-list { display: none; }
+  .more-toggle[aria-expanded="true"] + .more-list { display: block; }
+
+  @media (max-width: 600px) {
+    dialog { margin: auto auto max(12px, env(safe-area-inset-bottom)); }
+    dialog[open] { animation: sheetUp .28s cubic-bezier(.2, .9, .3, 1); }
+    @keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+  }
+`;
+var headerHtml = (h) => {
+  const art = h.image ? `<div class="art ${h.round ? "round" : ""}"><img src="${esc(h.image)}" alt="" /></div>` : h.icon ? `<div class="art ${h.round ? "round" : ""}"><ha-icon icon="${esc(h.icon)}"></ha-icon></div>` : "";
+  return `<div class="head">${art}<div class="meta"><div class="title">${esc(h.title)}</div>${h.subtitle ? `<div class="sub">${esc(h.subtitle)}</div>` : ""}</div></div>`;
+};
+var actionHtml = (a) => `<button class="opt" data-key="${esc(a.key)}"><span>${esc(a.label)}</span>${a.icon ? `<ha-icon icon="${esc(a.icon)}"></ha-icon>` : ""}</button>`;
+var choiceHtml = (c) => `<button class="opt choice ${c.selected ? "sel" : ""}" data-key="${esc(c.key)}" ${c.disabled ? "disabled" : ""}>
+    <ha-icon class="c-icon ${c.active ? "on" : ""}" icon="${esc(c.icon)}"></ha-icon>
+    <span class="c-text"><span class="c-name">${esc(c.label)}</span>${c.sublabel ? `<span class="c-sub">${esc(c.sublabel)}</span>` : ""}</span>
+    ${c.selected ? `<ha-icon class="c-check" icon="mdi:check"></ha-icon>` : ""}
+  </button>`;
+var MaActionSheet = class extends HTMLElement {
+  dialog;
+  overlay;
+  result = null;
+  resolve;
+  constructor() {
+    super();
+    const root = this.attachShadow({ mode: "open" });
+    root.innerHTML = `<style>${STYLES2}</style><dialog></dialog>`;
+    this.dialog = root.querySelector("dialog");
+    this.overlay = new OverlayHistory(this.dialog, `sheet-${nextInstanceId()}`);
+    this.dialog.addEventListener("close", () => this.settle());
+    this.dialog.addEventListener("click", (e) => {
+      if (e.target === this.dialog) return this.overlay.close();
+      const btn = e.target.closest("button");
+      if (!btn || btn.disabled) return;
+      if (btn.classList.contains("more-toggle")) {
+        btn.setAttribute("aria-expanded", String(btn.getAttribute("aria-expanded") !== "true"));
+        return;
+      }
+      this.result = btn.dataset.key ?? null;
+      this.overlay.close();
+    });
+  }
+  disconnectedCallback() {
+    this.overlay.close();
+  }
+  get isOpen() {
+    return this.overlay.isOpen;
+  }
+  show(spec) {
+    this.settle();
+    const { header, actions = [], choices = [], more, cancelLabel = "Cancelar" } = spec;
+    this.dialog.innerHTML = `
+      <div class="sheet">
+        ${header ? headerHtml(header) : ""}
+        ${actions.map(actionHtml).join("")}
+        ${choices.map(choiceHtml).join("")}
+        ${more?.choices.length ? `<button class="opt more-toggle" aria-expanded="false"><span>${esc(more.label)}</span>
+                 <ha-icon icon="mdi:chevron-down"></ha-icon></button>
+               <div class="more-list">${more.choices.map(choiceHtml).join("")}</div>` : ""}
+      </div>
+      <button class="sheet cancel">${esc(cancelLabel)}</button>`;
+    this.result = null;
+    const p = new Promise((resolve) => {
+      this.resolve = resolve;
+    });
+    if (!this.overlay.open()) this.dialog.scrollTop = 0;
+    return p;
+  }
+  close() {
+    this.overlay.close();
+  }
+  settle() {
+    const resolve = this.resolve;
+    this.resolve = void 0;
+    resolve?.(this.result);
+    this.result = null;
+  }
+};
+
+// src/components/toast.ts
+var STYLES3 = `
+  :host { display: contents; }
+  :host([dark]) { ${DARK_VARS} }
+  .toast { position: fixed; inset: auto auto max(24px, env(safe-area-inset-bottom)) 50%; transform: translateX(-50%);
+    margin: 0; display: flex; align-items: center; gap: 12px; width: max-content;
+    max-width: min(440px, calc(100vw - 32px)); padding: 8px 18px 8px 8px; border: .5px solid var(--sep);
+    border-radius: 18px; color: var(--primary-text-color);
+    background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    box-shadow: 0 10px 36px rgba(0, 0, 0, .22); }
+  .toast:not(:popover-open):not(.show) { display: none; }
+  .toast:popover-open, .toast.show { animation: toastIn .3s cubic-bezier(.2, .9, .3, 1.2); }
+  @keyframes toastIn { from { transform: translate(-50%, 16px); opacity: 0; } to { transform: translateX(-50%); opacity: 1; } }
+  .toast img { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; }
+  .toast > ha-icon:first-child { margin-left: 8px; color: var(--accent); }
+  .t-text { display: flex; flex-direction: column; min-width: 0; }
+  .t-title { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .t-sub { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .t-icon { color: var(--accent); margin-left: 4px; }
+  .toast.error { border-color: color-mix(in srgb, var(--error-color, #ff3b30) 50%, transparent); }
+  .toast.error .t-icon, .toast.error > ha-icon:first-child { color: var(--error-color, #ff3b30); }
+`;
+var MaToast = class extends HTMLElement {
+  el;
+  timer;
+  constructor() {
+    super();
+    const root = this.attachShadow({ mode: "open" });
+    root.innerHTML = `<style>${STYLES3}</style><div class="toast" popover="manual" role="status"></div>`;
+    this.el = root.querySelector(".toast");
+  }
+  disconnectedCallback() {
+    clearTimeout(this.timer);
+  }
+  show({ title, text, icon, image, error = false }) {
+    const t = this.el;
+    t.className = `toast ${error ? "error" : ""}`;
+    t.innerHTML = `
+      ${image ? `<img src="${esc(image)}" alt="" />` : `<ha-icon icon="${esc(icon)}"></ha-icon>`}
+      <span class="t-text"><span class="t-title">${esc(title)}</span><span class="t-sub">${esc(text)}</span></span>
+      ${image ? `<ha-icon class="t-icon" icon="${esc(icon)}"></ha-icon>` : ""}`;
+    clearTimeout(this.timer);
+    try {
+      if (t.showPopover) {
+        if (t.matches(":popover-open")) t.hidePopover();
+        t.showPopover();
+      } else t.classList.add("show");
+    } catch (_) {
+      t.classList.add("show");
+    }
+    this.timer = setTimeout(() => this.hide(), error ? 4500 : 2600);
+  }
+  hide() {
+    const t = this.el;
+    try {
+      if (t.hidePopover && t.matches(":popover-open")) t.hidePopover();
+    } catch (_) {
+    }
+    t.classList.remove("show");
   }
 };
 
@@ -2542,6 +2636,8 @@ var MaPlayerCard = class extends HTMLElement {
 var defineOnce = (name, cls) => {
   if (!customElements.get(name)) customElements.define(name, cls);
 };
+defineOnce("ma-player-toast", MaToast);
+defineOnce("ma-player-action-sheet", MaActionSheet);
 defineOnce("ma-browser-card", MaBrowserCard);
 defineOnce("ma-player-card", MaPlayerCard);
 window.customCards = window.customCards || [];

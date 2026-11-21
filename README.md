@@ -236,12 +236,19 @@ src/
     backend.ts            elige native o mass_queue y arma el backend
     native/               integración oficial de HA
     mass-queue/           cola y favoritos con la integración mass_queue
-  components/             UI compartida (slider)
+  components/             UI compartida entre las dos cards
+    action-sheet.ts       menú estilo iOS (<ma-player-action-sheet>)
+    toast.ts              aviso flotante (<ma-player-toast>)
+    speaker-picker.ts     selector "Reproducir en"
+    overlay-history.ts    el botón "atrás" cierra diálogos y menús
+    slider.ts             barras de progreso y volumen
+    theme.ts              variables de color (tema claro y oscuro)
   services/
     playback-clock.ts     posición de la canción (incluye el parche del bug #7194)
     lyrics/               letras (LRCLIB y parser LRC)
-    speaker-target.ts     parlante elegido
-  utils/                  escape de HTML, formato, ids
+    speaker-target.ts     parlante elegido (compartido entre cards)
+    speakers.ts           lista y nombres de parlantes
+  utils/                  escape de HTML, formato, ids, vibración
 test/                     tests (Vitest)
 dev/                      mocks para probar en el navegador
 scripts/build.mjs         build con esbuild
