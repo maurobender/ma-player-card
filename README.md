@@ -225,6 +225,8 @@ The version comes from `package.json`: to release, bump it there and run `npm ru
 The mocks in `dev/` fake `hass` in the browser. `?lang=es` switches either mock to Spanish. In `player.html`, `?mq=1` fakes the `mass_queue` integration, and
 running `window.oldHA = true` in the console fakes a Home Assistant version without the full queue.
 
+The cards, the queue, the lyrics and the slider are [Lit](https://lit.dev) components; Lit is bundled into the file.
+
 ```
 src/
   main.ts                 registers the cards (entry point)
@@ -234,7 +236,7 @@ src/
   i18n/                   translations (en is the base; es)
   cards/
     browser-card/         ma-browser-card and its styles
-    player-card/          ma-player-card, its styles, and the queue (<ma-player-queue>, Lit)
+    player-card/          ma-player-card, its styles, the queue (<ma-player-queue>) and lyrics (<ma-player-lyrics>)
   backend/                the only code that talks to Music Assistant
     types.ts              the contract: library, queue, favorites, player
     backend.ts            picks native or mass_queue and assembles the backend
@@ -245,7 +247,7 @@ src/
     toast.ts              floating notice (<ma-player-toast>)
     speaker-picker.ts     the "Play on" sheet
     overlay-history.ts    the back button closes dialogs and menus
-    slider.ts             progress and volume sliders
+    slider.ts             progress and volume slider (<ma-slider>)
     theme.ts              color variables (light and dark)
   services/
     playback-clock.ts     song position (including the #7194 workaround)

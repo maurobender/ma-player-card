@@ -1,0 +1,607 @@
+/*
+ * ma-player-card: a mini player on the dashboard that opens "Now playing" full screen,
+ * with the queue, synced lyrics and the music browser.
+ */
+
+import { html, LitElement, nothing, type PropertyValues } from "lit";
+import { BackendHolder } from "../../backend/backend.js";
+import { errorMessage } from "../../backend/call.js";
+import type { MaBackend, PlayerApi, QueueInfo } from "../../backend/types.js";
+import type { MaActionSheet } from "../../components/action-sheet.js";
+import { OverlayHistory } from "../../components/overlay-history.js";
+import { pickSpeaker } from "../../components/speaker-picker.js";
+import { accentColor } from "../../components/theme.js";
+import type { MaToast, ToastSpec } from "../../components/toast.js";
+import { hassLanguage, type Translate, translator } from "../../i18n/index.js";
+import type { Hass, HassEntityState, RepeatMode } from "../../models/hass.js";
+import type { TrackInfo } from "../../services/lyrics/lrclib.js";
+import { PlaybackClock } from "../../services/playback-clock.js";
+import { TARGET_EVENT, Target, type TargetEventDetail } from "../../services/speaker-target.js";
+import { listSpeakers, speakerName } from "../../services/speakers.js";
+import { fmtTime } from "../../utils/format.js";
+import { haptic } from "../../utils/haptic.js";
+import { nextInstanceId } from "../../utils/ids.js";
+import { VERSION } from "../../version.js";
+import { type BrowserConfigInput, MaBrowserCard } from "../browser-card/browser-card.js";
+import { browserStyles } from "../browser-card/browser-card.styles.js";
+import { playerStyles } from "./player-card.styles.js";
+import type { MaPlayerQueue } from "./player-queue.js";
+
+export interface PlayerConfig extends BrowserConfigInput {
+  entity: string;
+  queue_limit: number;
+  lyrics: boolean;
+  lyrics_url: string;
+  lyrics_offset?: number;
+  debug?: boolean;
+}
+
+type View = "art" | "queue" | "lyrics";
+type Command = "playpause" | "prev" | "next" | "shuffle" | "repeat" | "search";
+
+const REPEAT_ORDER: RepeatMode[] = ["off", "all", "one"];
+/** How long our own play/pause wins over HA's state, which arrives a moment later. */
+const OPTIMISTIC_MS = 2500;
+/** How long our own volume wins over HA's. */
+const VOLUME_HOLD_MS = 2000;
+/** The queue reports the old favorite state for a few seconds after a change. */
+const FAVORITE_HOLD_MS = 6000;
+
+const picture = (st?: HassEntityState): string => st?.attributes.entity_picture_local || st?.attributes.entity_picture || "";
+const duration = (st?: HassEntityState): number => Number(st?.attributes.media_duration) || 0;
+
+export class MaPlayerCard extends LitElement {
+  static properties = {
+    hass: { attribute: false },
+    config: { state: true },
+    target: { state: true },
+    view: { state: true },
+    npOpen: { state: true },
+    fav: { state: true },
+    now: { state: true },
+    dragPos: { state: true },
+    volume: { state: true },
+    optimistic: { state: true },
+    brokenImages: { state: true },
+  };
+
+  declare hass?: Hass;
+  declare config?: PlayerConfig;
+  declare target: string | null;
+  declare view: View;
+  declare npOpen: boolean;
+  /** null while unknown. */
+  declare fav: boolean | null;
+  /** Re-renders the progress every tick. */
+  declare now: number;
+  /** Seek position while the slider is dragged. */
+  declare dragPos: number | null;
+  declare volume: { level: number; at: number } | null;
+  declare optimistic: { playing: boolean; at: number } | null;
+  declare brokenImages: ReadonlySet<string>;
+
+  private readonly instanceId = `ma-player-${nextInstanceId()}`;
+  private readonly backends = new BackendHolder(() => this.hass as Hass);
+  private readonly clock = new PlaybackClock((msg) => this.log(msg));
+  private uiLang = "";
+  private t: Translate = translator("en");
+  private trackKey = "";
+  private favAt = 0;
+  private overlay: OverlayHistory | null = null;
+  /** The config last passed to the embedded browser. */
+  private browserConfigured?: PlayerConfig;
+  private timer?: ReturnType<typeof setInterval>;
+  private queueTimer?: ReturnType<typeof setTimeout>;
+  private volumeTimer?: ReturnType<typeof setTimeout>;
+  private debugLog: string[] = [];
+  private debugQueue?: { elapsed?: number; error?: string; at: number };
+  private debugPollAt = 0;
+  private debugBusy = false;
+
+  static styles = [browserStyles, playerStyles];
+
+  constructor() {
+    super();
+    this.target = null;
+    this.view = "art";
+    this.npOpen = false;
+    this.fav = null;
+    this.now = Date.now();
+    this.dragPos = null;
+    this.volume = null;
+    this.optimistic = null;
+    this.brokenImages = new Set();
+  }
+
+  setConfig(config: Partial<PlayerConfig>): void {
+    if (!config?.entity) throw new Error("Missing 'entity' (a Music Assistant media_player)");
+    this.config = { queue_limit: 50, lyrics: true, lyrics_url: "https://lrclib.net", ...config, entity: config.entity };
+    this.target = Target.load(this.config.entity);
+  }
+
+  getCardSize(): number {
+    return 2;
+  }
+
+  getGridOptions() {
+    return { columns: 12, min_columns: 6 };
+  }
+
+  static getStubConfig(hass?: Hass) {
+    return MaBrowserCard.getStubConfig(hass);
+  }
+
+  connectedCallback(): void {
+    super.connectedCallback();
+    window.addEventListener(TARGET_EVENT, this.onTargetEvent);
+    clearInterval(this.timer);
+    this.timer = setInterval(() => this.tick(), 500);
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    window.removeEventListener(TARGET_EVENT, this.onTargetEvent);
+    clearInterval(this.timer);
+    clearTimeout(this.queueTimer);
+    clearTimeout(this.volumeTimer);
+    this.overlay?.close();
+  }
+
+  private onTargetEvent = (e: Event): void => {
+    const { entity, target } = (e as CustomEvent<TargetEventDetail>).detail;
+    if (entity === this.config?.entity) this.target = target;
+  };
+
+  private get entity(): string {
+    const t = this.target;
+    return t && this.hass?.states[t] ? t : (this.config as PlayerConfig).entity;
+  }
+
+  private get state(): HassEntityState | undefined {
+    return this.hass?.states[this.entity];
+  }
+
+  private get backend(): MaBackend {
+    const c = this.config as PlayerConfig;
+    return this.backends.get({ mode: c.backend || "auto", entity: c.entity, configEntryId: c.config_entry_id });
+  }
+
+  private isPlaying(st = this.state): boolean {
+    if (!st) return false;
+    const o = this.optimistic;
+    if (o && Date.now() - o.at < OPTIMISTIC_MS) return o.playing;
+    return st.state === "playing";
+  }
+
+  private position(st = this.state): number {
+    return st ? this.clock.position(duration(st)) : 0;
+  }
+
+  protected willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("config") && this.config) this.style.setProperty("--accent", accentColor(this.config.accent_color));
+    if (!this.config || !this.hass) return;
+    if (changed.has("hass")) {
+      const lang = hassLanguage(this.hass);
+      if (lang !== this.uiLang) {
+        this.uiLang = lang;
+        this.t = translator(lang);
+      }
+    }
+    if (changed.has("hass") || changed.has("target")) this.syncState();
+  }
+
+  /** Runs on every new state, even when nothing visible changed. */
+  private syncState(): void {
+    const st = this.state;
+    const a = st?.attributes ?? {};
+    if (this.optimistic && st && (st.state === "playing") === this.optimistic.playing) this.optimistic = null;
+    const key = `${this.entity}|${a.media_title || ""}|${a.media_artist || ""}`;
+    this.clock.sync(
+      key,
+      st
+        ? {
+            state: st.state,
+            playing: st.state === "playing",
+            position: Number(a.media_position) || 0,
+            updatedAt: a.media_position_updated_at || "",
+          }
+        : null,
+      duration(st),
+    );
+    if (key !== this.trackKey) {
+      this.trackKey = key;
+      this.fav = null;
+      if (this.npOpen) this.refreshQueue();
+    }
+  }
+
+  protected updated(): void {
+    const dialog = this.renderRoot.querySelector<HTMLDialogElement>("dialog.np");
+    if (dialog && dialog !== this.overlay?.dialog) this.overlay = new OverlayHistory(dialog, `${this.instanceId}:np`);
+    const browser = this.browser;
+    if (browser && this.config && this.browserConfigured !== this.config) {
+      this.browserConfigured = this.config;
+      browser.setConfig(this.browserConfig());
+    }
+  }
+
+  private browserConfig(): BrowserConfigInput {
+    // The embedded browser shares the card's options (media_types, home, speakers…)
+    const { type, queue_limit, lyrics, lyrics_url, lyrics_offset, debug, name, ...rest } = this.config as PlayerConfig;
+    return { ...rest, mode: "overlay" };
+  }
+
+  private get browser(): MaBrowserCard | null {
+    return this.renderRoot.querySelector("ma-browser-card");
+  }
+
+  private get queueEl(): MaPlayerQueue | null {
+    return this.renderRoot.querySelector("ma-player-queue");
+  }
+
+  private get sheet(): MaActionSheet | null {
+    return this.renderRoot.querySelector("ma-player-action-sheet");
+  }
+
+  private showToast(spec: ToastSpec): void {
+    this.renderRoot.querySelector<MaToast>("ma-player-toast")?.show(spec);
+  }
+
+  private tick(): void {
+    if (!this.hass || !this.config) return;
+    this.now = Date.now();
+    if (this.config.debug && this.npOpen && Date.now() - this.debugPollAt > 2000) {
+      this.debugPollAt = Date.now();
+      this.pollDebugQueue();
+    }
+  }
+
+  protected render() {
+    const c = this.config;
+    const hass = this.hass;
+    if (!c || !hass) return nothing;
+    const { t } = this;
+    const st = this.state;
+    const a = st?.attributes ?? {};
+    const has = !!(st && a.media_title);
+    const unavailable = !st || st.state === "unavailable";
+    const playing = this.isPlaying(st);
+    const pic = picture(st);
+    const name = speakerName(hass, this.entity);
+    const d = duration(st);
+    const pos = this.dragPos ?? this.position(st);
+    const ratio = d ? Math.min(1, pos / d) : 0;
+    const playIcon = playing ? "mdi:pause" : "mdi:play";
+    const backend = this.backend;
+    const showFav = has && backend.favorites.canFavorite(this.entity);
+    const repeat = a.repeat || "off";
+    const volume = this.volume && Date.now() - this.volume.at < VOLUME_HOLD_MS ? this.volume.level : Number(a.volume_level) || 0;
+    const track: TrackInfo | null = has
+      ? { title: a.media_title as string, artist: a.media_artist, album: a.media_album_name, duration: a.media_duration }
+      : null;
+
+    return html`
+      <ha-card class="mini ${has ? "" : "idle"}">
+        <div class="mini-row">
+          <button class="mini-main" aria-label=${t("player.open")} @click=${() => (has ? this.openNowPlaying() : this.browser?.open())}>
+            <span class="mini-art">${this.renderArt(has ? pic : "")}</span>
+            <span class="mini-text">
+              <span class="mini-title">${has ? a.media_title : t(unavailable ? "player.unavailable" : "player.nothing_playing")}</span>
+              <span class="mini-sub">
+                ${has ? [a.media_artist, a.media_album_name].filter(Boolean).join(" · ") : t("player.tap_to_search", { name })}
+              </span>
+            </span>
+          </button>
+          <div class="mini-ctrls">
+            ${this.renderCmd("ib prev", "prev", t("player.previous"), "mdi:skip-previous")}
+            ${this.renderCmd("ib play", "playpause", t("player.play_pause"), playIcon)}
+            ${this.renderCmd("ib next", "next", t("player.next"), "mdi:skip-next")}
+            ${this.renderCmd("ib search", "search", t("browser.launcher"), "mdi:magnify")}
+          </div>
+        </div>
+        <div class="mini-progress"><div class="fill" style="width: ${ratio * 100}%"></div></div>
+      </ha-card>
+
+      <dialog class="np" @close=${this.onNowPlayingClosed}>
+        <div class="np-bg" style=${pic ? `background-image: url("${pic.replace(/"/g, "%22")}")` : ""}></div>
+        <div class="np-shade"></div>
+        ${c.debug && this.npOpen ? html`<pre class="np-debug">${this.debugText(st, pos)}</pre>` : nothing}
+        <div class="np-inner">
+          <div class="np-top">
+            <button class="np-btn np-close" aria-label=${t("common.close")} @click=${() => this.overlay?.close()}>
+              <ha-icon icon="mdi:chevron-down"></ha-icon>
+            </button>
+            <div class="np-where">${t("common.playing_on", { name })}</div>
+            <span class="np-top-spacer"></span>
+          </div>
+          <div class="np-stage" data-view=${this.view}>
+            <div class="np-art-wrap view-art"><div class="np-art ${playing ? "" : "paused"}">${this.renderArt(pic)}</div></div>
+            <ma-player-queue
+              class="np-list view-queue"
+              .backend=${backend}
+              entity=${this.entity}
+              .limit=${Number(c.queue_limit) || 50}
+              language=${this.uiLang}
+              @queue-info=${this.onQueueInfo}
+              @toast=${(e: CustomEvent<ToastSpec>) => this.showToast(e.detail)}
+            ></ma-player-queue>
+            ${
+              c.lyrics
+                ? html`<ma-player-lyrics
+                    class="np-lyrics view-lyrics"
+                    .track=${track}
+                    .position=${pos}
+                    .offset=${this.lyricsOffset()}
+                    ?active=${this.npOpen && this.view === "lyrics"}
+                    url=${c.lyrics_url}
+                    language=${this.uiLang}
+                    @seek=${(e: CustomEvent<number>) => this.seek(e.detail)}
+                  ></ma-player-lyrics>`
+                : nothing
+            }
+          </div>
+          <div class="np-panel">
+            <div class="np-titlerow">
+              <div class="np-text">
+                <div class="np-title">${has ? a.media_title : t("player.nothing_playing")}</div>
+                <div class="np-artist">${has ? [a.media_artist, a.media_album_name].filter(Boolean).join(" — ") : ""}</div>
+              </div>
+              ${
+                showFav
+                  ? html`<button class="np-btn fav ${this.fav ? "on" : ""}" aria-label=${t("player.favorite")} @click=${this.toggleFavorite}>
+                      <ha-icon icon=${this.fav ? "mdi:heart" : "mdi:heart-outline"}></ha-icon>
+                    </button>`
+                  : nothing
+              }
+            </div>
+            <ma-slider
+              class="seek"
+              aria-label=${t("player.position")}
+              .value=${ratio}
+              @slide=${(e: CustomEvent<number>) => (this.dragPos = e.detail * d)}
+              @slide-end=${this.onSeekEnd}
+            ></ma-slider>
+            <div class="np-times"><span>${fmtTime(pos)}</span><span>${d ? `-${fmtTime(d - pos)}` : ""}</span></div>
+            <div class="np-ctrls">
+              ${this.renderCmd(`np-btn small ${a.shuffle ? "on" : ""}`, "shuffle", t("player.shuffle"), "mdi:shuffle-variant")}
+              ${this.renderCmd("np-btn big", "prev", t("player.previous"), "mdi:skip-previous")}
+              ${this.renderCmd("np-btn huge", "playpause", t("player.play_pause"), playIcon)}
+              ${this.renderCmd("np-btn big", "next", t("player.next"), "mdi:skip-next")}
+              ${this.renderCmd(
+                `np-btn small ${repeat !== "off" ? "on" : ""}`,
+                "repeat",
+                t("player.repeat"),
+                repeat === "one" ? "mdi:repeat-once" : repeat === "all" ? "mdi:repeat" : "mdi:repeat-off",
+              )}
+            </div>
+            <div class="np-vol">
+              <ha-icon icon="mdi:volume-low"></ha-icon>
+              <ma-slider
+                class="vol"
+                aria-label=${t("player.volume")}
+                .value=${volume}
+                @slide=${(e: CustomEvent<number>) => this.setVolume(e.detail, false)}
+                @slide-end=${(e: CustomEvent<number | null>) => e.detail !== null && this.setVolume(e.detail, true)}
+              ></ma-slider>
+              <ha-icon icon="mdi:volume-high"></ha-icon>
+            </div>
+            <div class="np-bottom">
+              ${c.lyrics ? this.renderViewButton("lyrics", t("player.lyrics"), "mdi:message-text-outline") : html`<span class="np-top-spacer"></span>`}
+              <button class="np-pill" aria-label=${t("speakers.choose")} @click=${this.openSpeakers}>
+                <ha-icon icon="mdi:speaker"></ha-icon><span>${name}</span>
+              </button>
+              ${this.renderCmd("np-btn tool", "search", t("browser.launcher"), "mdi:magnify")}
+              ${this.renderViewButton("queue", t("player.queue"), "mdi:playlist-music")}
+            </div>
+          </div>
+        </div>
+      </dialog>
+
+      <ma-browser-card .hass=${hass} .artwork=${has ? pic : null}></ma-browser-card>
+      <!-- Shown over "Now playing", which is always dark -->
+      <ma-player-action-sheet dark></ma-player-action-sheet>
+      <ma-player-toast dark></ma-player-toast>
+    `;
+  }
+
+  private renderArt(url: string) {
+    return url && !this.brokenImages.has(url)
+      ? html`<img src=${url} alt="" draggable="false" @error=${() => (this.brokenImages = new Set(this.brokenImages).add(url))} />`
+      : html`<ha-icon icon="mdi:music"></ha-icon>`;
+  }
+
+  private renderCmd(cls: string, cmd: Command, label: string, icon: string) {
+    return html`<button class=${cls} aria-label=${label} @click=${() => this.cmd(cmd)}><ha-icon icon=${icon}></ha-icon></button>`;
+  }
+
+  private renderViewButton(view: View, label: string, icon: string) {
+    return html`<button
+      class="np-btn tool ${this.view === view ? "on" : ""}"
+      aria-label=${label}
+      @click=${() => this.setView(this.view === view ? "art" : view)}
+    >
+      <ha-icon icon=${icon}></ha-icon>
+    </button>`;
+  }
+
+  private openNowPlaying(): void {
+    if (!this.overlay?.open()) return;
+    this.npOpen = true;
+    haptic(this, "light");
+    this.refreshQueue();
+  }
+
+  private onNowPlayingClosed = (): void => {
+    this.npOpen = false;
+  };
+
+  private openSpeakers = async (): Promise<void> => {
+    const c = this.config;
+    const sheet = this.sheet;
+    if (!c || !sheet || !this.hass) return;
+    const ids = listSpeakers(this.hass, c.entity, c.speakers);
+    const id = await pickSpeaker(sheet, this.hass, ids, this.entity, this.t);
+    if (!id) return;
+    // Every card for this entity updates through onTargetEvent, this one included
+    Target.save(c.entity, id === c.entity ? null : id);
+    haptic(this, "selection");
+  };
+
+  /** Delayed: a player usually sends several state changes in a row. */
+  private refreshQueue(): void {
+    clearTimeout(this.queueTimer);
+    this.queueTimer = setTimeout(() => this.queueEl?.refresh(this.view === "queue"), 400);
+  }
+
+  private setView(view: View): void {
+    this.view = view;
+    if (view === "queue") this.queueEl?.refresh(true);
+    haptic(this, "selection");
+  }
+
+  /** Player commands only log their errors: the state update shows whether they worked. */
+  private run(label: string, fn: (player: PlayerApi, entity: string) => Promise<void>): Promise<void> {
+    return fn(this.backend.player, this.entity).catch((err) => console.error(`[ma-player-card] ${label}`, err));
+  }
+
+  private cmd(cmd: Command): void {
+    const st = this.state;
+    const a = st?.attributes ?? {};
+    haptic(this, "light");
+    switch (cmd) {
+      case "playpause": {
+        const playing = !this.isPlaying(st);
+        this.clock.setLocal(this.position(st), playing);
+        this.optimistic = { playing, at: Date.now() };
+        this.run("media_play_pause", (p, e) => p.playPause(e));
+        return;
+      }
+      case "prev":
+        this.run("media_previous_track", (p, e) => p.previous(e));
+        return;
+      case "next":
+        this.run("media_next_track", (p, e) => p.next(e));
+        return;
+      case "shuffle":
+        this.run("shuffle_set", (p, e) => p.setShuffle(e, !a.shuffle));
+        return;
+      case "repeat": {
+        const next = REPEAT_ORDER[(REPEAT_ORDER.indexOf(a.repeat || "off") + 1) % REPEAT_ORDER.length];
+        this.run("repeat_set", (p, e) => p.setRepeat(e, next));
+        return;
+      }
+      case "search":
+        this.browser?.open();
+    }
+  }
+
+  private seek(pos: number): void {
+    this.clock.setLocal(pos, this.isPlaying());
+    this.requestUpdate();
+    this.run("media_seek", (p, e) => p.seek(e, Math.round(pos * 10) / 10));
+  }
+
+  private onSeekEnd = (e: CustomEvent<number | null>): void => {
+    this.dragPos = null;
+    const d = duration(this.state);
+    if (e.detail !== null && d) this.seek(e.detail * d);
+  };
+
+  /** Sends at most every 250 ms while dragging, and always on release. */
+  private setVolume(level: number, final: boolean): void {
+    this.volume = { level, at: Date.now() };
+    const send = () => {
+      this.volumeTimer = undefined;
+      const v = Math.round((this.volume?.level ?? level) * 100) / 100;
+      this.run("volume_set", (p, e) => p.setVolume(e, v));
+    };
+    if (final) {
+      clearTimeout(this.volumeTimer);
+      send();
+    } else if (!this.volumeTimer) this.volumeTimer = setTimeout(send, 250);
+  }
+
+  private lyricsOffset(): number {
+    const o = Number(this.config?.lyrics_offset);
+    return Number.isFinite(o) ? o : 0.6;
+  }
+
+  private toggleFavorite = async (): Promise<void> => {
+    const st = this.state;
+    if (!st) return;
+    const item = { title: String(st.attributes.media_title || ""), image: picture(st) || undefined };
+    const be = this.backend;
+    const ent = this.entity;
+    const remove = !!this.fav;
+    const { t } = this;
+    if (remove && !be.can.unfavorite) {
+      this.showToast({ ...item, text: t("player.already_favorite"), icon: "mdi:heart" });
+      return;
+    }
+    this.fav = !remove;
+    this.favAt = Date.now();
+    haptic(this, remove ? "light" : "success");
+    try {
+      if (remove) await be.favorites.unfavorite(ent);
+      else await be.favorites.favorite(ent);
+      this.showToast({
+        ...item,
+        text: t(remove ? "player.unfavorited" : "player.favorited"),
+        icon: remove ? "mdi:heart-broken" : "mdi:heart",
+      });
+    } catch (err) {
+      this.fav = remove;
+      this.showToast({
+        ...item,
+        text: t(remove ? "player.unfavorite_failed" : "player.favorite_failed", { error: errorMessage(err) }),
+        icon: "mdi:alert-circle",
+        error: true,
+      });
+    }
+  };
+
+  private onQueueInfo = (e: CustomEvent<QueueInfo>): void => {
+    const info = e.detail;
+    if (info.current && Date.now() - this.favAt > FAVORITE_HOLD_MS) this.fav = !!info.current.favorite;
+  };
+
+  private log(msg: string): void {
+    if (!this.config?.debug) return;
+    const line = `${new Date().toISOString().slice(11, 23)} ${msg}`;
+    console.info(`[ma-player-card][debug] ${line}`);
+    this.debugLog = [line, ...this.debugLog].slice(0, 10);
+  }
+
+  /** Music Assistant's own elapsed_time, to compare with the card's position. */
+  private async pollDebugQueue(): Promise<void> {
+    if (this.debugBusy) return;
+    this.debugBusy = true;
+    try {
+      const info = await this.backend.queue.info(this.entity);
+      this.debugQueue = { elapsed: info.elapsed, at: Date.now() };
+    } catch (err) {
+      this.debugQueue = { error: errorMessage(err), at: Date.now() };
+    }
+    this.debugBusy = false;
+  }
+
+  private debugText(st: HassEntityState | undefined, pos: number): string {
+    const a = st?.attributes ?? {};
+    const { anchor: an, skew, offset } = this.clock.debug;
+    const q = this.debugQueue;
+    const ago = (t: number) => `${((Date.now() - t) / 1000).toFixed(1)}s`;
+    const o = this.optimistic;
+    return [
+      `v${VERSION}  backend: ${this.backend.name}  state: ${st ? st.state : "-"}  (optimistic: ${o ? o.playing : "-"})`,
+      `HA media_position: ${a.media_position}  duration: ${a.media_duration}`,
+      `HA updated_at: ${a.media_position_updated_at || "-"}`,
+      `device clock: ${new Date().toISOString()}`,
+      `clock skew: ${skew == null ? "not measured" : `${skew} ms`}   MA offset: ${offset.toFixed(1)}s`,
+      `anchor: ${an ? `${an.pos.toFixed(1)}s ${ago(an.at)} ago ${an.playing ? "▶" : "⏸"}` : "-"}`,
+      `CARD POSITION: ${pos.toFixed(1)}s`,
+      `MA queue elapsed_time: ${q ? (q.error ? `error ${q.error}` : `${q.elapsed}s (${ago(q.at)} ago)`) : "…"}`,
+      "— events —",
+      ...this.debugLog,
+    ].join("\n");
+  }
+}

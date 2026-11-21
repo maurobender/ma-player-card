@@ -13,7 +13,7 @@ export class NativeFavorites implements FavoritesApi {
   button(entity: string): string | null {
     const ents = this.hass().entities || {};
     const me = ents[entity];
-    if (!me || !me.device_id) return null;
+    if (!me?.device_id) return null;
     const btn = Object.values(ents).find(
       (x) =>
         !!x &&

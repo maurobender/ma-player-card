@@ -7,8 +7,10 @@
 
 import { MaBrowserCard } from "./cards/browser-card/browser-card.js";
 import { MaPlayerCard } from "./cards/player-card/player-card.js";
+import { MaPlayerLyrics } from "./cards/player-card/player-lyrics.js";
 import { MaPlayerQueue } from "./cards/player-card/player-queue.js";
 import { MaActionSheet } from "./components/action-sheet.js";
+import { MaSlider } from "./components/slider.js";
 import { MaToast } from "./components/toast.js";
 import { VERSION } from "./version.js";
 
@@ -32,7 +34,9 @@ const defineOnce = (name: string, cls: CustomElementConstructor) => {
 // Components first: the cards use them as soon as they are created
 defineOnce("ma-player-toast", MaToast);
 defineOnce("ma-player-action-sheet", MaActionSheet);
+defineOnce("ma-slider", MaSlider);
 defineOnce("ma-player-queue", MaPlayerQueue);
+defineOnce("ma-player-lyrics", MaPlayerLyrics);
 defineOnce("ma-browser-card", MaBrowserCard);
 defineOnce("ma-player-card", MaPlayerCard);
 

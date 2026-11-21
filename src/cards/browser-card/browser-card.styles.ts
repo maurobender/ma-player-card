@@ -1,12 +1,13 @@
+import { css, unsafeCSS } from "lit";
 import { BASE_VARS, DARK_VARS } from "../../components/theme.js";
 import { APPLE_RED } from "../../constants.js";
 
 // Styled after Apple Music, on top of HA's theme variables so light and dark modes both work.
-export const STYLES = `
+export const browserStyles = css`
   :host {
     display: block;
-    --accent: ${APPLE_RED};
-    ${BASE_VARS}
+    --accent: ${unsafeCSS(APPLE_RED)};
+    ${unsafeCSS(BASE_VARS)}
     --art-radius: 10px;
   }
 
@@ -37,7 +38,7 @@ export const STYLES = `
 
   /* While something plays: the same blurred-artwork background as "Now playing" */
   :host([artwork]) {
-    ${DARK_VARS}
+    ${unsafeCSS(DARK_VARS)}
   }
   :host([artwork]) dialog.full { background: #1c1c1e; }
   .full-bg, .full-shade { display: none; position: absolute; pointer-events: none; }

@@ -1,3 +1,5 @@
+import { APPLE_RED } from "../constants.js";
+
 // Components don't define the base variables (--fill, --glass, --accent…): they inherit them
 // from the card around them, so they follow the HA theme and the configured accent color.
 
@@ -27,3 +29,6 @@ export const DARK_VARS = `
   --sep: rgba(255, 255, 255, .14);
   color-scheme: dark;
 `;
+
+/** The `accent_color` option: a CSS color, or "theme" for HA's primary color. */
+export const accentColor = (option?: string): string => (option === "theme" ? "var(--primary-color)" : option || APPLE_RED);

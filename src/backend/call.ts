@@ -16,7 +16,7 @@ export async function callWithResponse<T>(
     ...(entity ? { target: { entity_id: entity } } : {}),
     return_response: true,
   });
-  return ((r && r.response) || r || {}) as T;
+  return (r?.response || r || {}) as T;
 }
 
 /** Entity actions respond per entity: { "media_player.x": {...} }. */

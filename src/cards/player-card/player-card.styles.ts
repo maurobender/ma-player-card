@@ -1,4 +1,6 @@
-export const PLAYER_STYLES = `
+import { css } from "lit";
+
+export const playerStyles = css`
   /* Mini player (the card on the dashboard) */
   .mini { position: relative; overflow: hidden; container-type: inline-size; }
   .mini-row { display: flex; align-items: center; gap: 6px; padding: 10px 8px 12px 10px; }
@@ -57,7 +59,7 @@ export const PLAYER_STYLES = `
   .np-btn:focus { outline: none; }
   .np-btn:focus-visible { background: var(--np-fill); }
   .np-btn ha-icon { --mdc-icon-size: 28px; }
-  #npClose { background: var(--np-fill); }
+  .np-close { background: var(--np-fill); }
 
   .np-stage { grid-area: stage; min-height: 0; position: relative; container-type: size; }
   .np-stage > * { position: absolute; inset: 0; display: none; }
@@ -79,12 +81,6 @@ export const PLAYER_STYLES = `
   .fav ha-icon { --mdc-icon-size: 24px; }
   .fav.on ha-icon { color: var(--accent); animation: pop .35s ease-out; }
 
-  .slider { position: relative; height: 30px; display: flex; align-items: center; cursor: pointer; touch-action: none; outline: none; }
-  .slider .track { position: relative; width: 100%; height: 6px; border-radius: 3px; overflow: hidden;
-    background: rgba(255, 255, 255, .25); transition: height .15s; }
-  .slider .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: rgba(255, 255, 255, .8); }
-  .slider.drag .track, .slider:focus-visible .track { height: 12px; border-radius: 6px; }
-  .slider.drag .fill { background: #fff; }
   .np-times { display: flex; justify-content: space-between; margin-top: -4px; font-size: 12px;
     color: var(--np-dim); font-variant-numeric: tabular-nums; }
   .np-ctrls { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 8px; }
@@ -96,7 +92,7 @@ export const PLAYER_STYLES = `
   .np-btn.small.on, .np-btn.tool.on { background: var(--np-fill); }
   .np-btn.small.on ha-icon, .np-btn.tool.on ha-icon { color: #fff; }
   .np-vol { display: flex; align-items: center; gap: 10px; color: var(--np-dim); }
-  .np-vol .slider { flex: 1; }
+  .np-vol ma-slider { flex: 1; }
   .np-vol ha-icon { --mdc-icon-size: 20px; }
   .np-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; }
   .np-pill { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 60%; height: 40px; padding: 0 16px;
@@ -111,23 +107,10 @@ export const PLAYER_STYLES = `
     -webkit-mask-image: linear-gradient(transparent, #000 20px, #000 calc(100% - 56px), transparent);
     mask-image: linear-gradient(transparent, #000 20px, #000 calc(100% - 56px), transparent); }
   .np-list::-webkit-scrollbar, .np-lyrics::-webkit-scrollbar { display: none; }
-  .np-msg { height: 100%; display: grid; place-items: center; text-align: center; padding: 0 24px;
-    font-size: 17px; color: var(--np-dim); }
 
-  .ly-pad { height: 32cqh; }
-  .ly-line { margin: 0; padding: 10px 0; font-size: clamp(24px, 4.4cqw, 42px); font-weight: 700; line-height: 1.25;
-    color: rgba(255, 255, 255, .34); cursor: pointer; transform-origin: left center; filter: blur(.5px);
-    transition: color .35s, transform .35s, filter .35s; -webkit-tap-highlight-color: transparent; }
-  .ly-line.past { color: rgba(255, 255, 255, .28); }
-  .ly-line.active { color: #fff; filter: none; transform: scale(1.03); }
-  .ly-plain { padding: 24px 0 8px; font-size: 22px; font-weight: 600; line-height: 1.55; white-space: pre-wrap;
-    color: rgba(255, 255, 255, .88); }
-  .ly-note { padding: 18px 0; font-size: 12px; color: var(--np-dim); }
   .np-debug { position: absolute; z-index: 5; left: 12px; bottom: 12px; max-width: min(560px, calc(100vw - 24px)); margin: 0;
     padding: 10px 12px; border-radius: 12px; background: rgba(0, 0, 0, .72); color: #9f9; font: 11px/1.45 ui-monospace, monospace;
     white-space: pre-wrap; pointer-events: none; }
-  .ly-link { display: inline-block; margin-top: 14px; padding: 10px 18px; border-radius: 999px; background: var(--np-fill);
-    color: #fff; text-decoration: none; font-size: 15px; font-weight: 600; }
 
   @media (max-width: 480px) {
     .np-title { font-size: 21px; }
