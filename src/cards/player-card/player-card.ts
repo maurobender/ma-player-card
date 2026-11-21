@@ -46,9 +46,14 @@ const OPTIMISTIC_MS = 2500;
 const VOLUME_HOLD_MS = 2000;
 /** The queue reports the old favorite state for a few seconds after a change. */
 const FAVORITE_HOLD_MS = 6000;
+/** MediaPlayerEntityFeature.VOLUME_MUTE */
+const FEATURE_VOLUME_MUTE = 8;
+/** Unmuting a player without mute support, when the volume before muting is unknown. */
+const DEFAULT_UNMUTE_LEVEL = 0.3;
 
 const picture = (st?: HassEntityState): string => st?.attributes.entity_picture_local || st?.attributes.entity_picture || "";
 const duration = (st?: HassEntityState): number => Number(st?.attributes.media_duration) || 0;
+const canMute = (st?: HassEntityState): boolean => (Number(st?.attributes.supported_features) & FEATURE_VOLUME_MUTE) !== 0;
 
 export class MaPlayerCard extends LitElement {
   static properties = {
@@ -61,6 +66,7 @@ export class MaPlayerCard extends LitElement {
     now: { state: true },
     dragPos: { state: true },
     volume: { state: true },
+    mute: { state: true },
     optimistic: { state: true },
     brokenImages: { state: true },
   };
@@ -77,6 +83,7 @@ export class MaPlayerCard extends LitElement {
   /** Seek position while the slider is dragged. */
   declare dragPos: number | null;
   declare volume: { level: number; at: number } | null;
+  declare mute: { muted: boolean; at: number } | null;
   declare optimistic: { playing: boolean; at: number } | null;
   declare brokenImages: ReadonlySet<string>;
 
@@ -93,6 +100,8 @@ export class MaPlayerCard extends LitElement {
   private timer?: ReturnType<typeof setInterval>;
   private queueTimer?: ReturnType<typeof setTimeout>;
   private volumeTimer?: ReturnType<typeof setTimeout>;
+  /** The volume to go back to, per player, when the player can't mute and muting set it to 0. */
+  private unmuteLevels = new Map<string, number>();
   private debugLog: string[] = [];
   private debugQueue?: { elapsed?: number; error?: string; at: number };
   private debugPollAt = 0;
@@ -109,6 +118,7 @@ export class MaPlayerCard extends LitElement {
     this.now = Date.now();
     this.dragPos = null;
     this.volume = null;
+    this.mute = null;
     this.optimistic = null;
     this.brokenImages = new Set();
   }
@@ -173,6 +183,19 @@ export class MaPlayerCard extends LitElement {
     return st.state === "playing";
   }
 
+  private volumeLevel(st = this.state): number {
+    const v = this.volume;
+    return v && Date.now() - v.at < VOLUME_HOLD_MS ? v.level : Number(st?.attributes.volume_level) || 0;
+  }
+
+  /** Players without mute support count as muted at volume 0. */
+  private isMuted(st = this.state): boolean {
+    if (!st) return false;
+    if (!canMute(st)) return this.volumeLevel(st) === 0;
+    const m = this.mute;
+    return m && Date.now() - m.at < OPTIMISTIC_MS ? m.muted : !!st.attributes.is_volume_muted;
+  }
+
   private position(st = this.state): number {
     return st ? this.clock.position(duration(st)) : 0;
   }
@@ -195,6 +218,7 @@ export class MaPlayerCard extends LitElement {
     const st = this.state;
     const a = st?.attributes ?? {};
     if (this.optimistic && st && (st.state === "playing") === this.optimistic.playing) this.optimistic = null;
+    if (this.mute && st && !!a.is_volume_muted === this.mute.muted) this.mute = null;
     const key = `${this.entity}|${a.media_title || ""}|${a.media_artist || ""}`;
     this.clock.sync(
       key,
@@ -275,7 +299,8 @@ export class MaPlayerCard extends LitElement {
     const backend = this.backend;
     const showFav = has && backend.favorites.canFavorite(this.entity);
     const repeat = a.repeat || "off";
-    const volume = this.volume && Date.now() - this.volume.at < VOLUME_HOLD_MS ? this.volume.level : Number(a.volume_level) || 0;
+    const muted = this.isMuted(st);
+    const volume = muted ? 0 : this.volumeLevel(st);
     const track: TrackInfo | null = has
       ? { title: a.media_title as string, artist: a.media_artist, album: a.media_album_name, duration: a.media_duration }
       : null;
@@ -375,7 +400,14 @@ export class MaPlayerCard extends LitElement {
               )}
             </div>
             <div class="np-vol">
-              <ha-icon icon="mdi:volume-low"></ha-icon>
+              <button
+                class="np-vol-btn"
+                aria-label=${t(muted ? "player.unmute" : "player.mute")}
+                aria-pressed=${muted ? "true" : "false"}
+                @click=${this.toggleMute}
+              >
+                <ha-icon icon=${muted ? "mdi:volume-off" : "mdi:volume-low"}></ha-icon>
+              </button>
               <ma-slider
                 class="vol"
                 aria-label=${t("player.volume")}
@@ -507,8 +539,30 @@ export class MaPlayerCard extends LitElement {
     if (e.detail !== null && d) this.seek(e.detail * d);
   };
 
-  /** Sends at most every 250 ms while dragging, and always on release. */
+  /** Mutes, or unmutes back to the previous volume. */
+  private toggleMute = (): void => {
+    const st = this.state;
+    if (!st) return;
+    const muted = this.isMuted(st);
+    haptic(this, "light");
+    if (canMute(st)) {
+      this.mute = { muted: !muted, at: Date.now() };
+      this.run("volume_mute", (p, e) => p.setMute(e, !muted));
+    } else if (muted) {
+      this.setVolume(this.unmuteLevels.get(this.entity) || DEFAULT_UNMUTE_LEVEL, true);
+    } else {
+      this.unmuteLevels.set(this.entity, this.volumeLevel(st));
+      this.setVolume(0, true);
+    }
+  };
+
+  /** Sends at most every 250 ms while dragging, and always on release. Moving the slider unmutes. */
   private setVolume(level: number, final: boolean): void {
+    const st = this.state;
+    if (level > 0 && canMute(st) && this.isMuted(st)) {
+      this.mute = { muted: false, at: Date.now() };
+      this.run("volume_mute", (p, e) => p.setMute(e, false));
+    }
     this.volume = { level, at: Date.now() };
     const send = () => {
       this.volumeTimer = undefined;

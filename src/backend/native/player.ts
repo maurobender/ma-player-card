@@ -28,6 +28,10 @@ export class HaPlayer implements PlayerApi {
     return this.call(entity, "volume_set", { volume_level: level });
   }
 
+  setMute(entity: string, muted: boolean) {
+    return this.call(entity, "volume_mute", { is_volume_muted: muted });
+  }
+
   setShuffle(entity: string, shuffle: boolean) {
     return this.call(entity, "shuffle_set", { shuffle });
   }

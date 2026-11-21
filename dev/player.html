@@ -31,7 +31,8 @@
     states: {
       "media_player.salon": { state: "playing", attributes: { friendly_name: "Salón", media_title: "BAILAR O MORIR", media_artist: "BOM, Miranda!, Lali",
         media_album_name: "BAILAR O MORIR", media_duration: 154, media_position: 20, media_position_updated_at: now(),
-        entity_picture: "https://picsum.photos/seed/queen/600", volume_level: 0.4, shuffle: false, repeat: "off" } },
+        entity_picture: "https://picsum.photos/seed/queen/600", volume_level: 0.4, is_volume_muted: false, shuffle: false, repeat: "off",
+        supported_features: 8 } },
       "media_player.cocina": { state: "idle", attributes: { friendly_name: "Cocina" } },
     },
     services: MQ ? { mass_queue: { get_queue_items: {} } } : {},
@@ -60,6 +61,7 @@
       if (service === "shuffle_set") st.attributes.shuffle = data.shuffle;
       if (service === "repeat_set") st.attributes.repeat = data.repeat;
       if (service === "volume_set") st.attributes.volume_level = data.volume_level;
+      if (service === "volume_mute") st.attributes.is_volume_muted = data.is_volume_muted;
       push();
     },
     async callWS(msg) {

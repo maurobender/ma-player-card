@@ -11,6 +11,9 @@ export interface MediaPlayerAttributes {
   entity_picture?: string;
   entity_picture_local?: string;
   volume_level?: number;
+  is_volume_muted?: boolean;
+  /** Bit flags of MediaPlayerEntityFeature. */
+  supported_features?: number;
   shuffle?: boolean;
   repeat?: RepeatMode;
   [key: string]: unknown;

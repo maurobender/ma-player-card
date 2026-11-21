@@ -239,9 +239,11 @@ describe("player", () => {
     const p = createBackend(() => hass, "native", { entity: ENT }).player;
     await p.seek(ENT, 105.3);
     await p.setRepeat(ENT, "all");
+    await p.setMute(ENT, true);
     expect(hass.calls.map((c) => [c.service, c.data])).toEqual([
       ["media_seek", { entity_id: ENT, seek_position: 105.3 }],
       ["repeat_set", { entity_id: ENT, repeat: "all" }],
+      ["volume_mute", { entity_id: ENT, is_volume_muted: true }],
     ]);
   });
 });

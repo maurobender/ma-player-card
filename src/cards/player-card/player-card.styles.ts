@@ -21,9 +21,11 @@ export const playerStyles = css`
     color: var(--primary-text-color); display: grid; place-items: center; -webkit-tap-highlight-color: transparent; }
   .ib:active { background: var(--fill); }
   .ib ha-icon { --mdc-icon-size: 28px; }
-  .ib.play ha-icon { --mdc-icon-size: 36px; }
+  /* MDI glyphs fill their box unevenly (pause ~14/24 high, magnify ~17/24): play needs a clearly bigger box */
+  .ib.play { width: 52px; height: 52px; }
+  .ib.play ha-icon { --mdc-icon-size: 44px; }
   .ib.search { color: var(--primary-text-color); }
-  .ib.search ha-icon { --mdc-icon-size: 26px; }
+  .ib.search ha-icon { --mdc-icon-size: 24px; }
   .mini.idle .prev, .mini.idle .play, .mini.idle .next, .mini.idle .mini-progress { display: none; }
   .mini-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--fill); }
   .mini-progress .fill { height: 100%; width: 0; background: var(--accent); transition: width .5s linear; }
@@ -94,6 +96,13 @@ export const playerStyles = css`
   .np-vol { display: flex; align-items: center; gap: 10px; color: var(--np-dim); }
   .np-vol ma-slider { flex: 1; }
   .np-vol ha-icon { --mdc-icon-size: 20px; }
+  .np-vol-btn { width: 36px; height: 36px; flex: 0 0 36px; margin: 0 -8px; padding: 0; border: 0; border-radius: 50%;
+    display: grid; place-items: center; background: transparent; color: inherit; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; transition: transform .1s, color .15s; }
+  .np-vol-btn:active { transform: scale(.88); }
+  .np-vol-btn:focus { outline: none; }
+  .np-vol-btn:focus-visible { background: var(--np-fill); }
+  .np-vol-btn[aria-pressed="true"] { color: #fff; }
   .np-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; }
   .np-pill { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 60%; height: 40px; padding: 0 16px;
     border-radius: 999px; border: 0; background: var(--np-fill); color: #fff; font: inherit; font-size: 15px; font-weight: 600;

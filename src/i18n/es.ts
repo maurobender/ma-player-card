@@ -61,6 +61,8 @@ export const es: Translations = {
   "player.shuffle": "Aleatorio",
   "player.repeat": "Repetir",
   "player.volume": "Volumen",
+  "player.mute": "Silenciar",
+  "player.unmute": "Activar sonido",
   "player.lyrics": "Letra",
   "player.queue": "Cola",
   "player.nothing_playing": "Nada sonando",

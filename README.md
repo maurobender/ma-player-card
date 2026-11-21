@@ -82,7 +82,8 @@ When nothing is playing, tapping it opens the browser.
 
 - The background is the blurred artwork; the artwork shrinks while paused.
 - ♥ adds the current song to your Music Assistant favorites. With `mass_queue`, tapping it again removes it.
-- A draggable progress bar (seek) and volume.
+- A draggable progress bar (seek) and volume. Tap the speaker icon left of the volume to mute; tap it again to
+  go back to the previous volume.
 - At the bottom: 💬 lyrics · speaker · 🔍 search · ☰ queue.
 - While something plays, the browser uses the same background (blurred artwork, light text); otherwise it follows the HA theme.
 - **Queue**: the current song and the upcoming ones (see *Backends* for what you can do with them).

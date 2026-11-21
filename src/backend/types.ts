@@ -100,6 +100,7 @@ export interface PlayerApi {
   next(entity: string): Promise<void>;
   seek(entity: string, seconds: number): Promise<void>;
   setVolume(entity: string, level: number): Promise<void>;
+  setMute(entity: string, muted: boolean): Promise<void>;
   setShuffle(entity: string, shuffle: boolean): Promise<void>;
   setRepeat(entity: string, repeat: RepeatMode): Promise<void>;
 }

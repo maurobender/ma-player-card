@@ -59,6 +59,8 @@ export const en = {
   "player.shuffle": "Shuffle",
   "player.repeat": "Repeat",
   "player.volume": "Volume",
+  "player.mute": "Mute",
+  "player.unmute": "Unmute",
   "player.lyrics": "Lyrics",
   "player.queue": "Queue",
   "player.nothing_playing": "Nothing playing",
