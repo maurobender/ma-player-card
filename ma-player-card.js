@@ -17,7 +17,7 @@
  *   entity: media_player.salon
  */
 
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 
 const TYPES = {
   track:     { label: "Canciones",   key: "tracks",     icon: "mdi:music-note",     enqueue: "play", list: true },
@@ -227,7 +227,7 @@ class MaBrowserCard extends HTMLElement {
             <ha-icon class="l-chev" icon="mdi:chevron-right"></ha-icon>
           </button>
         </ha-card>` : ""}
-        <dialog id="full" class="full">${browser}</dialog>`
+        <dialog id="full" class="full"><div class="full-bg" id="fullBg"></div><div class="full-shade"></div>${browser}</dialog>`
       : `<ha-card class="inline-card">${browser}</ha-card>`}
       <dialog id="menu" class="menu"></dialog>
       <div id="toast" class="toast" popover="manual" role="status"></div>`;
@@ -239,6 +239,7 @@ class MaBrowserCard extends HTMLElement {
     this._menu = $("menu");
     this._toast = $("toast");
     this._full = $("full");
+    this._applyArtwork();
     this._launcherSub = $("lsub");
     this._speakerLabel = $("speakerName");
     if ($("speaker")) $("speaker").addEventListener("click", () => this._openSpeakers());
@@ -285,6 +286,23 @@ class MaBrowserCard extends HTMLElement {
   /** Abre el buscador a pantalla completa (lo usa ma-player-card). */
   open() {
     this._openFull();
+  }
+
+  /**
+   * Fondo con la portada de lo que está sonando (lo usa el reproductor).
+   * url: null = tema normal de HA · "" = fondo oscuro sin imagen · "https://…" = portada desenfocada
+   */
+  setArtwork(url) {
+    if (url === this._artwork) return;
+    this._artwork = url;
+    this._applyArtwork();
+  }
+
+  _applyArtwork() {
+    const on = this._artwork != null;
+    this.toggleAttribute("artwork", on); // atributo (no clase): el reproductor ya usa .art para la portada
+    const bg = this.shadowRoot && this.shadowRoot.getElementById("fullBg");
+    if (bg) bg.style.backgroundImage = on && this._artwork ? `url("${this._artwork.replace(/"/g, "%22")}")` : "";
   }
 
   _launcherSubtitle() {
@@ -898,6 +916,25 @@ const STYLES = `
     background: var(--glass-bg); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
     color: var(--primary-text-color); overflow: hidden; }
   dialog.full::backdrop { background: transparent; }
+
+  /* Con algo sonando: mismo fondo que "Reproduciendo" (portada desenfocada, texto claro) */
+  :host([artwork]) {
+    --primary-text-color: #fff;
+    --secondary-text-color: rgba(255, 255, 255, .62);
+    --primary-background-color: #1c1c1e;
+    --card-background-color: #2c2c2e;
+    --glass-bg: rgba(28, 28, 30, .2);
+    --fill: rgba(255, 255, 255, .1);
+    --fill-strong: rgba(255, 255, 255, .16);
+    --sep: rgba(255, 255, 255, .14);
+    color-scheme: dark;
+  }
+  :host([artwork]) dialog.full { background: #1c1c1e; }
+  .full-bg, .full-shade { display: none; position: absolute; pointer-events: none; }
+  :host([artwork]) .full-bg { display: block; inset: -15%; background: #2c2c2e center / cover no-repeat;
+    filter: blur(70px) saturate(1.6) brightness(.8); transform: translateZ(0); }
+  :host([artwork]) .full-shade { display: block; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, .25), rgba(0, 0, 0, .55)); }
+  .wrap.is-full { position: relative; }
   dialog.full[open] { animation: rise .32s cubic-bezier(.2, .9, .3, 1); }
   @keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 
@@ -1833,6 +1870,7 @@ class MaPlayerCard extends HTMLElement {
     const e = this._els;
     const has = !!(st && a.media_title);
     const unavailable = !st || st.state === "unavailable";
+    if (this._browser) this._browser.setArtwork(has ? pic || "" : null); // el buscador usa el mismo fondo
 
     // Mini
     e.mini.classList.toggle("idle", !has);
@@ -1863,6 +1901,8 @@ class MaPlayerCard extends HTMLElement {
       this._fav = null;
       this._lyrics = null;
       this._lyricIdx = -1;
+      this._lyUserAt = 0;
+      this._els.lyrics.scrollTop = 0; // canción nueva: la letra arranca desde arriba
       if (this._np.open) this._refreshNp();
     }
     this._renderFav();
@@ -2303,10 +2343,10 @@ class MaPlayerCard extends HTMLElement {
       p.classList.toggle("past", i < idx);
     });
     // Auto-scroll salvo que el usuario haya desplazado hace poco
+    if (this._lyUserAt && Date.now() - this._lyUserAt < 4000) return;
     const active = el.querySelector(".ly-line.active");
-    if (active && (!this._lyUserAt || Date.now() - this._lyUserAt > 4000)) {
-      el.scrollTo({ top: active.offsetTop - el.clientHeight * 0.32, behavior: "smooth" });
-    }
+    if (active) el.scrollTo({ top: active.offsetTop - el.clientHeight * 0.32, behavior: "smooth" });
+    else el.scrollTo({ top: 0, behavior: "smooth" }); // antes de la primera línea (intro o volver al inicio)
   }
 
   _haptic(kind) {
@@ -2336,7 +2376,7 @@ const PLAYER_STYLES = `
   .ib:active { background: var(--fill); }
   .ib ha-icon { --mdc-icon-size: 28px; }
   .ib.play ha-icon { --mdc-icon-size: 36px; }
-  .ib.search { color: var(--accent); }
+  .ib.search { color: var(--primary-text-color); }
   .ib.search ha-icon { --mdc-icon-size: 26px; }
   .mini.idle .prev, .mini.idle .play, .mini.idle .next, .mini.idle .mini-progress { display: none; }
   .mini-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--fill); }

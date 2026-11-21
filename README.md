@@ -98,6 +98,7 @@ Si no suena nada, tocarla abre directamente el buscador.
 - ♥ agrega la canción actual a favoritos de Music Assistant. Con `mass_queue`, tocarlo de nuevo la quita.
 - Barra de progreso arrastrable (adelantar/retroceder) y volumen.
 - Abajo: 💬 letra · parlante · 🔍 buscar · ☰ cola.
+- Con algo sonando, el buscador usa el mismo fondo (portada desenfocada y texto claro); sin nada sonando, usa el tema de HA.
 - **Cola**: la canción actual y las siguientes (ver *Backends* para qué se puede hacer con cada una).
 - **Letra sincronizada**: la línea actual se resalta y la vista se desplaza sola; tocá una línea para saltar a ese momento.
   Si no hay versión sincronizada, se muestra la letra sin sincronizar. Si no aparece, el botón *Buscar en lrclib.net*
