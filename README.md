@@ -288,3 +288,7 @@ always use the official integration; the queue and favorites use `mass_queue` wh
 
 Copy `src/i18n/es.ts` to a new file named after the language code (e.g. `fr.ts`), translate the values, and add it to
 `LANGUAGES` in `src/i18n/index.ts`. The `Translations` type makes the build fail if a key is missing.
+
+## License
+
+[MIT](LICENSE)
