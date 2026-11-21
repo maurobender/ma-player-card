@@ -1,15 +1,14 @@
 # ma-player-card
 
 A **Music Assistant** player and music browser for Home Assistant, styled after Apple Music.
-One file (`dist/ma-player-card.js`) with two cards:
+One file (`ma-player-card.js`) with two cards:
 
 | Card | What it is |
 |---|---|
 | `custom:ma-player-card` | What's playing, plus a full-screen **Now playing** view: controls, progress, volume, shuffle/repeat, favorite, the **queue**, **synced lyrics** and the built-in browser (🔍). |
 | `custom:ma-browser-card` | The browser on its own: a button that opens search full screen, with recently played items and favorites. |
 
-- Installing needs no build step: `dist/ma-player-card.js` is ready to copy and has everything bundled.
-  The source code lives in `src/` (see *Development*).
+- The source code lives in `src/`; `npm run build` bundles it, Lit included, into a single file (see *Installation*).
 - It works with the **official** Music Assistant integration that ships with Home Assistant.
   If [`mass_queue`](https://github.com/droans/mass_queue) (HACS) is also installed, the queue becomes editable (see *Backends*).
 - The interface follows the language of your Home Assistant profile. English and Spanish are included; other languages fall back to English.
@@ -31,11 +30,17 @@ One file (`dist/ma-player-card.js`) with two cards:
 
 ## Installation
 
-1. Copy `dist/ma-player-card.js` to `/config/www/` (for example with the *File editor* or *Samba* add-on).
-2. **Settings → Dashboards → ⋮ → Resources → Add resource**
+1. Build the file (requires Node.js 20 or later):
+   ```bash
+   npm install
+   npm run build
+   ```
+   This writes `dist/ma-player-card.js`. The `dist/` folder is not in git: build it again after every update.
+2. Copy `dist/ma-player-card.js` to `/config/www/` (for example with the *File editor* or *Samba* add-on).
+3. **Settings → Dashboards → ⋮ → Resources → Add resource**
    - URL: `/local/ma-player-card.js?v=1`
    - Type: **JavaScript module**
-3. Reload the browser. In the Companion app: *Settings → Companion app → Debugging → Reset frontend cache*, or close and reopen the app.
+4. Reload the browser. In the Companion app: *Settings → Companion app → Debugging → Reset frontend cache*, or close and reopen the app.
 
 > If the *Resources* menu is missing, turn on **Advanced mode** in your user profile.
 
@@ -43,7 +48,7 @@ One file (`dist/ma-player-card.js`) with two cards:
 
 The file was renamed: everything, including the browser, now lives in `ma-player-card.js`.
 
-1. Copy `dist/ma-player-card.js` to `/config/www/`.
+1. Build and copy `dist/ma-player-card.js` to `/config/www/` (see *Installation*).
 2. In **Resources**, **edit** the old `/local/ma-browser-card.js?v=…` resource and change its URL to `/local/ma-player-card.js?v=1`
    (or delete it and add the new one). **Don't keep both**: the old browser would load instead.
 3. Your `custom:ma-browser-card` cards keep working, and the chosen speaker is kept.
@@ -220,7 +225,7 @@ npm install
 | `npm run check` | Lint + types + tests + build |
 
 The version comes from `package.json`: to release, bump it there and run `npm run build`.
-`dist/` is committed so installing is just copying one file.
+`dist/` is a build output and is not committed.
 
 The mocks in `dev/` fake `hass` in the browser. `?lang=es` switches either mock to Spanish. In `player.html`, `?mq=1` fakes the `mass_queue` integration, and
 running `window.oldHA = true` in the console fakes a Home Assistant version without the full queue.
