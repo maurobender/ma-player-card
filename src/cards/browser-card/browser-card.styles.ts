@@ -90,7 +90,8 @@ export const browserStyles = css`
   .clear[hidden] { display: none; }
 
   /* Media type tabs */
-  .tabs { display: flex; gap: 8px; margin-top: 12px; overflow-x: auto; scrollbar-width: none; }
+  .tabs { display: flex; gap: 8px; margin-top: 12px; overflow-x: auto; scrollbar-width: none; animation: tabsIn .18s ease-out; }
+  @keyframes tabsIn { from { opacity: 0; transform: translateY(-4px); } }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { flex: 0 0 auto; height: 36px; padding: 0 16px; border-radius: 999px; border: 0; cursor: pointer;
     font: inherit; font-size: 15px; font-weight: 500; background: var(--fill); color: var(--primary-text-color);

@@ -154,7 +154,7 @@ speaker_selector: true   # button to choose which speaker plays
 ### Using the browser
 
 - **Tap the button** to open the browser full screen. With an empty search it shows your recently played items and favorites. Close it with ✕, *Esc* or Android's *back* button.
-- **Type** in the search field: it searches on its own after 350 ms, or when you press *Enter*.
+- **Type** in the search field: it searches on its own after 350 ms, or when you press *Enter*. The media type tabs (songs, artists, …) appear once there is something to search.
 - **Songs** are shown as a list (1–3 columns depending on the width); everything else as an artwork grid.
 - **Tap** a result to play it right away on the speaker.
   - Songs → `enqueue: play` (plays now, keeps the queue).

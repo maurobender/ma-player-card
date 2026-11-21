@@ -397,19 +397,24 @@ export class MaBrowserCard extends LitElement {
               <ha-icon icon="mdi:close-circle"></ha-icon>
             </button>
           </div>
-          <div class="tabs" role="tablist">
-            ${c.media_types.map(
-              (type) =>
-                html`<button
-                  class="tab"
-                  role="tab"
-                  aria-selected=${type === this.type ? "true" : "false"}
-                  @click=${() => this.setType(type)}
-                >
-                  ${t(`type.${type}`)}
-                </button>`,
-            )}
-          </div>
+          ${
+            // The tabs only filter search results, so they stay hidden while the home view is shown
+            this.q.trim()
+              ? html`<div class="tabs" role="tablist">
+                  ${c.media_types.map(
+                    (type) =>
+                      html`<button
+                        class="tab"
+                        role="tab"
+                        aria-selected=${type === this.type ? "true" : "false"}
+                        @click=${() => this.setType(type)}
+                      >
+                        ${t(`type.${type}`)}
+                      </button>`,
+                  )}
+                </div>`
+              : nothing
+          }
         </div>
         <div
           class="body"
