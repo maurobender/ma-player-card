@@ -1,5 +1,3 @@
-// Formateo de nombres y tiempos.
-
 export const names = (list: unknown): string =>
   Array.isArray(list)
     ? list

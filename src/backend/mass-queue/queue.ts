@@ -3,7 +3,7 @@ import { callWithResponse, forEntity } from "../call.js";
 import type { NativeQueue } from "../native/queue.js";
 import type { QueueApi, QueueInfo, QueueItem } from "../types.js";
 
-/** Ítem de mass_queue.get_queue_items (no trae la duración). */
+/** mass_queue.get_queue_items item (has no duration). */
 export interface MassQueueItem {
   queue_item_id: string;
   media_title?: string;
@@ -26,10 +26,7 @@ export function fromMassQueue(x: MassQueueItem): QueueItem {
   };
 }
 
-/**
- * Los pasos para llevar una canción de `from` a `to` con las acciones de mass_queue,
- * que solo saben "subir uno", "bajar uno" y "poner a continuación".
- */
+/** mass_queue can only move a song one step up, one step down, or to play next. */
 export function moveSteps(from: number, to: number): ("up" | "down" | "next")[] {
   if (from === to) return [];
   if (to === 0) return ["next"];
@@ -37,8 +34,8 @@ export function moveSteps(from: number, to: number): ("up" | "down" | "next")[] 
 }
 
 /**
- * Cola editable con mass_queue (HACS). La posición actual y el total los sigue dando la
- * integración oficial; mass_queue aporta la lista completa y las acciones para editarla.
+ * Editable queue. The current position and total still come from the official integration;
+ * mass_queue adds the full list and the actions to edit it.
  */
 export class MassQueueQueue implements QueueApi {
   readonly can = { reorder: true, remove: true, playItem: true };
@@ -59,7 +56,7 @@ export class MassQueueQueue implements QueueApi {
 
   async items(entity: string, info: QueueInfo, limit: number): Promise<QueueItem[]> {
     if (info.total <= info.idx + 1) return [];
-    // mass_queue identifica al parlante con el campo `entity`, no con un target
+    // mass_queue takes the player as an `entity` field, not as a target
     const r = await callWithResponse<Record<string, unknown>>(this.hass(), "mass_queue", "get_queue_items", {
       entity,
       offset: info.idx + 1,

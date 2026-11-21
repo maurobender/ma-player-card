@@ -1,259 +1,267 @@
 # ma-player-card
 
-Reproductor y buscador de **Music Assistant** para Home Assistant, con estilo inspirado en Apple Music.
-Un solo archivo (`dist/ma-player-card.js`) con dos tarjetas:
+A **Music Assistant** player and music browser for Home Assistant, styled after Apple Music.
+One file (`dist/ma-player-card.js`) with two cards:
 
-| Tarjeta | Qué es |
+| Card | What it is |
 |---|---|
-| `custom:ma-player-card` | Lo que está sonando + **Reproduciendo** a pantalla completa: controles, progreso, volumen, aleatorio/repetir, favorito, **cola**, **letra sincronizada** y el buscador integrado (🔍). |
-| `custom:ma-browser-card` | Solo el buscador: botón que abre la búsqueda a pantalla completa, con recientes y favoritos. |
+| `custom:ma-player-card` | What's playing, plus a full-screen **Now playing** view: controls, progress, volume, shuffle/repeat, favorite, the **queue**, **synced lyrics** and the built-in browser (🔍). |
+| `custom:ma-browser-card` | The browser on its own: a button that opens search full screen, with recently played items and favorites. |
 
-- Para instalarlo no hace falta compilar nada: `dist/ma-player-card.js` ya viene listo y no tiene dependencias.
-  El código fuente está en `src/` (ver *Desarrollo*).
-- Funciona solo con la integración **oficial** de Music Assistant del core de HA.
-  Si además tenés instalada [`mass_queue`](https://github.com/droans/mass_queue) (HACS), la cola se puede editar (ver *Backends*).
+- Installing needs no build step: `dist/ma-player-card.js` is ready to copy and has everything bundled.
+  The source code lives in `src/` (see *Development*).
+- It works with the **official** Music Assistant integration that ships with Home Assistant.
+  If [`mass_queue`](https://github.com/droans/mass_queue) (HACS) is also installed, the queue becomes editable (see *Backends*).
+- The interface follows the language of your Home Assistant profile. English and Spanish are included; other languages fall back to English.
 
-## Acciones de Music Assistant que usa (verificadas en la doc oficial)
+## Music Assistant actions it uses
 
-| Acción | Para qué | Campos clave |
+| Action | Used for | Key fields |
 |---|---|---|
-| `music_assistant.search` | Buscar | `config_entry_id`*, `name`*, `media_type` (`track`, `artist`, `album`, `playlist`, `radio`…), `limit` (def. 5), `library_only` |
-| `music_assistant.get_library` | Vista inicial: recientes y favoritos | `config_entry_id`*, `media_type`*, `favorite`, `order_by` (`last_played_desc`, `favorite_timestamp_desc`, `play_count_desc`, `timestamp_added_desc`, `name`, `random`…), `limit` (def. 25) |
-| `music_assistant.play_media` | Reproducir | target `entity_id`*, `media_id`* (URI), `media_type`, `enqueue` (`play`, `replace`, `next`, `replace_next`, `add`) |
-| `music_assistant.get_queue` | Cola (solo lectura) y estado de favorito | target `entity_id`*, `limit`, `offset` |
-| `media_player.*` | Controles | `media_play_pause`, `media_previous_track`, `media_next_track`, `media_seek`, `volume_set`, `shuffle_set`, `repeat_set` |
-| `button.press` | ♥ Favorito | Botón *Favorito de la canción actual* que Music Assistant crea por cada parlante |
-| `mass_queue.*` (opcional) | Editar la cola, quitar favorito | `get_queue_items`, `move_queue_item_up/down/next`, `remove_queue_item`, `play_queue_item`, `unfavorite_current_item` (campo `entity`, no target) |
+| `music_assistant.search` | Search | `config_entry_id`*, `name`*, `media_type` (`track`, `artist`, `album`, `playlist`, `radio`…), `limit` (default 5), `library_only` |
+| `music_assistant.get_library` | Home view: recently played and favorites | `config_entry_id`*, `media_type`*, `favorite`, `order_by` (`last_played_desc`, `favorite_timestamp_desc`, `play_count_desc`, `timestamp_added_desc`, `name`, `random`…), `limit` (default 25) |
+| `music_assistant.play_media` | Play | target `entity_id`*, `media_id`* (URI), `media_type`, `enqueue` (`play`, `replace`, `next`, `replace_next`, `add`) |
+| `music_assistant.get_queue` | Queue (read-only) and favorite state | target `entity_id`*, `limit`, `offset` |
+| `media_player.*` | Controls | `media_play_pause`, `media_previous_track`, `media_next_track`, `media_seek`, `volume_set`, `shuffle_set`, `repeat_set` |
+| `button.press` | ♥ Favorite | The *Favorite current song* button Music Assistant adds to each player |
+| `mass_queue.*` (optional) | Edit the queue, remove a favorite | `get_queue_items`, `move_queue_item_up/down/next`, `remove_queue_item`, `play_queue_item`, `unfavorite_current_item` (an `entity` field, not a target) |
 
-`search` devuelve listas agrupadas: `artists`, `albums`, `tracks`, `playlists`, `radio`, … con `name`, `uri`, `image`, etc.
-`config_entry_id` se detecta automáticamente desde la entidad (o se puede fijar en el YAML).
+`search` returns grouped lists (`artists`, `albums`, `tracks`, `playlists`, `radio`, …) with `name`, `uri`, `image`, and so on.
+`config_entry_id` is detected from the entity, or can be set in the YAML.
 
-## Instalación
+## Installation
 
-1. Copiá `dist/ma-player-card.js` a `/config/www/` (por ejemplo con la extensión *File editor* o *Samba*).
-2. **Ajustes → Paneles de control → ⋮ → Recursos → Agregar recurso**
+1. Copy `dist/ma-player-card.js` to `/config/www/` (for example with the *File editor* or *Samba* add-on).
+2. **Settings → Dashboards → ⋮ → Resources → Add resource**
    - URL: `/local/ma-player-card.js?v=1`
-   - Tipo: **Módulo JavaScript**
-3. Recargá el navegador (en la Companion app: *Ajustes → Companion app → Depuración → Restablecer caché del frontend*, o cerrar y abrir la app).
+   - Type: **JavaScript module**
+3. Reload the browser. In the Companion app: *Settings → Companion app → Debugging → Reset frontend cache*, or close and reopen the app.
 
-> Si el menú *Recursos* no aparece, activá el **Modo avanzado** en tu perfil de usuario.
+> If the *Resources* menu is missing, turn on **Advanced mode** in your user profile.
 
-### Si venías usando `ma-browser-card.js`
+### Coming from `ma-browser-card.js`
 
-El archivo cambió de nombre: ahora todo está en `ma-player-card.js` (incluido el buscador).
+The file was renamed: everything, including the browser, now lives in `ma-player-card.js`.
 
-1. Copiá `dist/ma-player-card.js` a `/config/www/`.
-2. En **Recursos**, **editá** el recurso viejo `/local/ma-browser-card.js?v=…` y cambiale la URL a `/local/ma-player-card.js?v=1`
-   (o borralo y agregá el nuevo). **No dejes los dos**: se cargaría la versión vieja del buscador.
-3. Tus tarjetas `custom:ma-browser-card` siguen funcionando igual, y el parlante elegido se conserva.
-4. Opcional: borrá `/config/www/ma-browser-card.js`.
+1. Copy `dist/ma-player-card.js` to `/config/www/`.
+2. In **Resources**, **edit** the old `/local/ma-browser-card.js?v=…` resource and change its URL to `/local/ma-player-card.js?v=1`
+   (or delete it and add the new one). **Don't keep both**: the old browser would load instead.
+3. Your `custom:ma-browser-card` cards keep working, and the chosen speaker is kept.
+4. Optionally, delete `/config/www/ma-browser-card.js`.
 
-## Actualizar (cache-busting)
+## Updating (cache busting)
 
-HA y la Companion app cachean los recursos agresivamente. Cada vez que reemplaces el archivo:
+Home Assistant and the Companion app cache resources aggressively. Every time you replace the file:
 
-1. Editá el recurso y subí el número: `/local/ma-player-card.js?v=2`, `?v=3`, …
-2. Recargá la página (Ctrl+Shift+R en escritorio).
-3. Comprobá en la consola (F12) el banner con la versión, p. ej. `MA-PLAYER-CARD v0.5.1`.
+1. Edit the resource and bump the number: `/local/ma-player-card.js?v=2`, `?v=3`, …
+2. Reload the page (Ctrl+Shift+R on desktop).
+3. Check the version banner in the console (F12), e.g. `MA-PLAYER-CARD v0.5.1`.
 
-## Reproductor (`ma-player-card`)
+## Player (`ma-player-card`)
 
 ```yaml
 type: custom:ma-player-card
 entity: media_player.home_assistant_voice_0a7e7c_media_player_2
-# Todas las opciones del buscador (media_types, home, speakers, accent_color, columns…) también valen acá
-queue_limit: 50     # canciones de la cola que se muestran
-lyrics: true        # botón de letra sincronizada
+# Every browser option (media_types, home, speakers, accent_color, columns…) works here too
+queue_limit: 50     # queue songs shown
+lyrics: true        # synced lyrics button
 # backend: auto     # auto | native | mass_queue
 ```
 
-| Opción | Por defecto | Descripción |
+| Option | Default | Description |
 |---|---|---|
-| `entity` | — (obligatorio) | Parlante por defecto |
-| `queue_limit` | `50` | Próximas canciones que se muestran en la cola |
-| `lyrics` | `true` | Muestra el botón de letra |
-| `lyrics_offset` | `0.6` | Adelanto de la letra en segundos. Subilo si la letra va atrasada, bajalo (o negativo) si va adelantada |
-| `lyrics_url` | `https://lrclib.net` | Servidor LRCLIB (por si usás uno propio) |
-| `backend` | `auto` | `auto` usa `mass_queue` si está instalada; `native` fuerza la integración oficial; `mass_queue` la fuerza |
-| `debug` | `false` | Muestra un panel con la posición, el backend y los eventos (para diagnosticar) |
-| `accent_color` y opciones del buscador | | Se pasan al buscador integrado |
+| `entity` | — (required) | Default speaker |
+| `queue_limit` | `50` | Upcoming songs shown in the queue |
+| `lyrics` | `true` | Shows the lyrics button |
+| `lyrics_offset` | `0.6` | Seconds the lyrics run ahead of the audio. Raise it if lyrics lag; lower it (or go negative) if they run early |
+| `lyrics_url` | `https://lrclib.net` | LRCLIB server, in case you host your own |
+| `backend` | `auto` | `auto` uses `mass_queue` when installed; `native` forces the official integration; `mass_queue` forces mass_queue |
+| `debug` | `false` | Shows a panel with the position, backend and events, for troubleshooting |
+| `accent_color` and the browser options | | Passed on to the built-in browser |
 
-**En el panel** se ve una fila con la portada, título, artista, ⏮ ⏯ ⏭, 🔍 y una barra de progreso fina.
-Si no suena nada, tocarla abre directamente el buscador.
+**On the dashboard** the card is a row with the artwork, title, artist, ⏮ ⏯ ⏭, 🔍 and a thin progress bar.
+When nothing is playing, tapping it opens the browser.
 
-**Al tocar la portada o el título** se abre *Reproduciendo* a pantalla completa:
+**Tapping the artwork or title** opens *Now playing* full screen:
 
-- Fondo con la portada desenfocada; la portada se achica cuando está en pausa.
-- ♥ agrega la canción actual a favoritos de Music Assistant. Con `mass_queue`, tocarlo de nuevo la quita.
-- Barra de progreso arrastrable (adelantar/retroceder) y volumen.
-- Abajo: 💬 letra · parlante · 🔍 buscar · ☰ cola.
-- Con algo sonando, el buscador usa el mismo fondo (portada desenfocada y texto claro); sin nada sonando, usa el tema de HA.
-- **Cola**: la canción actual y las siguientes (ver *Backends* para qué se puede hacer con cada una).
-- **Letra sincronizada**: la línea actual se resalta y la vista se desplaza sola; tocá una línea para saltar a ese momento.
-  Si no hay versión sincronizada, se muestra la letra sin sincronizar. Si no aparece, el botón *Buscar en lrclib.net*
-  abre la búsqueda en la web para comprobar si existe (LRCLIB es comunitario: se pueden subir letras con la app LRCGET).
-- Se cierra con la flecha ⌄, *Esc* o el botón *atrás* de Android (si el buscador está abierto encima, *atrás* cierra primero el buscador).
+- The background is the blurred artwork; the artwork shrinks while paused.
+- ♥ adds the current song to your Music Assistant favorites. With `mass_queue`, tapping it again removes it.
+- A draggable progress bar (seek) and volume.
+- At the bottom: 💬 lyrics · speaker · 🔍 search · ☰ queue.
+- While something plays, the browser uses the same background (blurred artwork, light text); otherwise it follows the HA theme.
+- **Queue**: the current song and the upcoming ones (see *Backends* for what you can do with them).
+- **Synced lyrics**: the current line is highlighted and the view follows along; tap a line to jump there.
+  Without a synced version, plain lyrics are shown. When nothing is found, *Search on lrclib.net* opens the
+  website so you can check (LRCLIB is community-run: lyrics can be added with the LRCGET app).
+- Close it with the ⌄ arrow, *Esc* or Android's *back* button. *Back* closes one layer at a time: a menu, then the browser, then *Now playing*.
 
-### Backends: integración oficial o `mass_queue`
+### Backends: official integration or `mass_queue`
 
-La tarjeta habla con Music Assistant a través de un *backend*. La interfaz es la misma; cambia lo que se puede hacer:
+The card talks to Music Assistant through a *backend*. The interface stays the same; what you can do changes:
 
-| | `native` (oficial) | `mass_queue` (HACS) |
+| | `native` (official) | `mass_queue` (HACS) |
 |---|---|---|
-| Ver la cola | ✓ (lista completa con HA de noviembre de 2026 o posterior; antes, solo la próxima) | ✓ siempre completa |
-| Tocar una canción para saltar a ella | — | ✓ |
-| Arrastrar ≡ para reordenar | — | ✓ |
-| Quitar de la cola (⊖) | — | ✓ |
-| ♥ agregar a favoritos | ✓ | ✓ |
-| ♥ quitar de favoritos | — | ✓ (solo canciones de la biblioteca) |
-| Duración de cada canción en la cola | ✓ | — (mass_queue no la informa) |
+| See the queue | ✓ (full list on Home Assistant from November 2026; before that, only the next song) | ✓ always the full list |
+| Tap a song to jump to it | — | ✓ |
+| Drag ≡ to reorder | — | ✓ |
+| Remove from the queue (⊖) | — | ✓ |
+| ♥ add to favorites | ✓ | ✓ |
+| ♥ remove from favorites | — | ✓ (library songs only) |
+| Song durations in the queue | ✓ | — (mass_queue doesn't report them) |
 
-Con `backend: auto` (por defecto) no hay que configurar nada: si instalás `mass_queue`, la tarjeta la usa sola.
-`mass_queue` **no** cambia la barra de progreso: el reinicio a 0 después de pausar o adelantar es un problema de
-Music Assistant (también le pasa a la tarjeta nativa de HA); la tarjeta lo compensa por su cuenta.
+With `backend: auto` (the default) there is nothing to configure: install `mass_queue` and the card picks it up.
+`mass_queue` does **not** change the progress bar. The jump back to 0 after pausing or seeking on some speakers is a
+Music Assistant bug ([music-assistant/support#7194](https://github.com/music-assistant/support/issues/7194)) that the
+official HA card shows too; this card compensates for it.
 
-> **Privacidad:** la letra se busca en [LRCLIB](https://lrclib.net), un servicio gratuito y sin clave.
-> Para eso, el dispositivo envía a lrclib.net el título, artista, álbum y duración de la canción. Con `lyrics: false` no se envía nada.
+> **Privacy:** lyrics come from [LRCLIB](https://lrclib.net), a free service with no API key.
+> To find them, the device sends the song's title, artist, album and duration to lrclib.net. With `lyrics: false` nothing is sent.
 
-## Buscador (`ma-browser-card`)
+## Browser (`ma-browser-card`)
 
 ```yaml
 type: custom:ma-browser-card
 entity: media_player.home_assistant_voice_0a7e7c_media_player_2
-mode: compact      # compact = botón que abre el buscador a pantalla completa | inline = buscador dentro del panel
-name: Buscar música
-accent_color: "#fa2d48"   # rojo Apple Music; "theme" usa el color primario del tema
-media_types: [track, artist, album, playlist, radio]   # pestañas visibles y su orden
-limit: 20          # resultados por tipo
-columns: 4         # columnas de la cuadrícula (auto en móvil)
-library_only: false   # true = buscar solo en tu biblioteca
-speaker_selector: true   # botón para elegir en qué parlante reproducir
-# speakers: [media_player.salon, media_player.cocina]   # def.: todos los de Music Assistant
-# home: ...                # estantes de la vista inicial (ver abajo)
-# config_entry_id: 01J...   # opcional
+mode: compact      # compact = a button that opens the browser full screen | inline = the browser inside the dashboard
+name: Search music
+accent_color: "#fa2d48"   # Apple Music red; "theme" uses the theme's primary color
+media_types: [track, artist, album, playlist, radio]   # visible tabs, in order
+limit: 20          # results per search
+columns: 4         # grid columns (automatic on phones)
+library_only: false   # true = search only your library
+speaker_selector: true   # button to choose which speaker plays
+# speakers: [media_player.living_room, media_player.kitchen]   # default: every Music Assistant player
+# home: ...                # home view shelves (see below)
+# config_entry_id: 01J...   # optional
 ```
 
-| Opción | Por defecto | Descripción |
+| Option | Default | Description |
 |---|---|---|
-| `entity` | — (obligatorio) | `media_player` de Music Assistant donde se reproduce |
-| `mode` | `compact` | `compact`: botón que abre el buscador a pantalla completa. `inline`: buscador dentro del panel |
-| `name` | `Buscar música` | Texto del botón (modo `compact`) |
-| `accent_color` | `#fa2d48` | Color de acento. `theme` usa `--primary-color` del tema |
-| `media_types` | `[track, artist, album, playlist, radio]` | Pestañas y su orden. También `podcast`, `audiobook` |
-| `limit` | `20` | Resultados por búsqueda |
-| `columns` | auto | Columnas máximas; en pantallas angostas se reducen solas |
-| `library_only` | `false` | Buscar solo en la biblioteca |
-| `speaker_selector` | `true` | Muestra el botón de parlante arriba a la derecha |
-| `speakers` | todos los de MA | Parlantes que aparecen en el selector |
-| `home` | ver abajo | Estantes de la vista inicial. `home: []` la desactiva |
-| `home_limit` | `20` | Portadas por estante |
-| `config_entry_id` | auto | Solo si la detección automática falla |
+| `entity` | — (required) | Music Assistant `media_player` to play on |
+| `mode` | `compact` | `compact`: a button that opens the browser full screen. `inline`: the browser inside the dashboard |
+| `name` | *Search music* (translated) | Button text in `compact` mode |
+| `accent_color` | `#fa2d48` | Accent color. `theme` uses the theme's `--primary-color` |
+| `media_types` | `[track, artist, album, playlist, radio]` | Tabs, in order. `podcast` and `audiobook` are also available |
+| `limit` | `20` | Results per search |
+| `columns` | auto | Maximum columns; fewer on narrow screens |
+| `library_only` | `false` | Search only the library |
+| `speaker_selector` | `true` | Shows the speaker button at the top right |
+| `speakers` | every MA player | Players listed in the speaker picker |
+| `home` | see below | Home view shelves. `home: []` turns it off |
+| `home_limit` | `20` | Items per shelf |
+| `config_entry_id` | auto | Only if automatic detection fails |
 
-### Vista inicial (`home`)
+### Home view (`home`)
 
-Al abrir el buscador sin texto se muestran estantes que se desplazan de costado. Los vacíos se ocultan.
-Por defecto:
+Opening the browser with an empty search shows shelves that scroll sideways. Empty shelves are hidden.
+The defaults, with titles in your language:
 
 ```yaml
 home:
-  - title: Escuchado recientemente
+  - title: Recently played
     media_type: album
     order_by: last_played_desc
-  - title: Tus playlists
+  - title: Your playlists
     media_type: playlist
     favorite: true
     order_by: favorite_timestamp_desc
-  - title: Artistas favoritos
+  - title: Favorite artists
     media_type: artist
     favorite: true
     order_by: favorite_timestamp_desc
-  - title: Álbumes favoritos
+  - title: Favorite albums
     media_type: album
     favorite: true
     order_by: favorite_timestamp_desc
-  - title: Radios favoritas
+  - title: Favorite radio
     media_type: radio
     favorite: true
     order_by: favorite_timestamp_desc
 ```
 
-Cada estante acepta `title`, `media_type`, `favorite`, `order_by` y `limit`.
+Each shelf takes `title`, `media_type`, `favorite`, `order_by` and `limit`. Without a `title`, the media type's name is used.
 
-### Selector de parlante
+### Speaker picker
 
-El botón con el nombre del parlante (arriba a la derecha) abre la lista de parlantes de Music Assistant,
-con lo que está sonando en cada uno. La elección se recuerda **en ese dispositivo** (la tablet y el móvil
-pueden tener parlantes distintos). Si el parlante elegido desaparece, vuelve al de `entity`.
+The button with the speaker's name (top right) lists the Music Assistant players and what each one is playing.
+The choice is remembered **on that device**, so a tablet and a phone can play on different speakers.
+If the chosen speaker disappears, the card goes back to `entity`.
 
-## Uso
+## Usage
 
-- **Tocá el botón** para abrir el buscador a pantalla completa. Sin texto, muestra tus recientes y favoritos. Se cierra con la ✕, con *Esc* o con el botón *atrás* de Android.
-- **Escribí** en el buscador: busca solo (a los 350 ms) o al pulsar *Enter*.
-- Las **canciones** se muestran en lista (1–3 columnas según el ancho); el resto, en cuadrícula de portadas.
-- **Tocá** un resultado: reproduce ya en el parlante.
-  - Canciones → `enqueue: play` (suena ahora, conserva la cola).
-  - Artistas, álbumes, playlists y radios → `enqueue: replace` (reemplaza la cola).
-- **Mantené pulsado** (o tocá **⋯**): *Reproducir ahora*, *Reproducir a continuación* (`next`), *Agregar a la cola* (`add`).
-  Las radios solo tienen *Reproducir ahora*.
+- **Tap the button** to open the browser full screen. With an empty search it shows your recently played items and favorites. Close it with ✕, *Esc* or Android's *back* button.
+- **Type** in the search field: it searches on its own after 350 ms, or when you press *Enter*.
+- **Songs** are shown as a list (1–3 columns depending on the width); everything else as an artwork grid.
+- **Tap** a result to play it right away on the speaker.
+  - Songs → `enqueue: play` (plays now, keeps the queue).
+  - Artists, albums, playlists and radio → `enqueue: replace` (replaces the queue).
+- **Long-press** (or tap **⋯**) for *Play now*, *Play next* (`next`) and *Add to queue* (`add`).
+  Radio only has *Play now*.
 
-Con `ma-player-card` no hace falta una tarjeta de búsqueda aparte: el 🔍 abre el mismo buscador.
-`ma-browser-card` sigue siendo útil si querés solo el botón de búsqueda en otro panel.
+With `ma-player-card` you don't need a separate browser card: 🔍 opens the same browser.
+`ma-browser-card` is still useful if you only want the search button on another dashboard.
 
-## Desarrollo
+## Development
 
-Requiere Node.js 20 o posterior.
+Requires Node.js 20 or later.
 
 ```bash
 npm install
 ```
 
-| Comando | Qué hace |
+| Command | What it does |
 |---|---|
-| `npm run build` | Compila `src/` en `dist/ma-player-card.js` (lo que se copia a HA) |
-| `npm run dev` | Recompila al guardar y sirve los mocks en <http://localhost:8766/player.html> y <http://localhost:8766/browser.html> |
-| `npm run lint` | Revisa el código con Biome |
-| `npm run format` | Formatea el código con Biome |
-| `npm run typecheck` | Revisa los tipos con TypeScript |
-| `npm test` | Corre los tests (Vitest) |
-| `npm run check` | Lint + tipos + tests + build |
+| `npm run build` | Bundles `src/` into `dist/ma-player-card.js` (the file you copy to HA) |
+| `npm run dev` | Rebuilds on save and serves the mocks at <http://localhost:8766/player.html> and <http://localhost:8766/browser.html> |
+| `npm run lint` | Lints with Biome |
+| `npm run format` | Formats with Biome |
+| `npm run typecheck` | Type-checks with TypeScript |
+| `npm test` | Runs the tests (Vitest) |
+| `npm run check` | Lint + types + tests + build |
 
-La versión sale de `package.json`: al publicar una versión nueva, subila ahí y corré `npm run build`.
-`dist/` se guarda en git para que instalar sea solo copiar un archivo.
+The version comes from `package.json`: to release, bump it there and run `npm run build`.
+`dist/` is committed so installing is just copying one file.
 
-Los mocks de `dev/` simulan `hass` en el navegador. En `player.html`, `?mq=1` simula la integración `mass_queue`.
+The mocks in `dev/` fake `hass` in the browser. `?lang=es` switches either mock to Spanish. In `player.html`, `?mq=1` fakes the `mass_queue` integration, and
+running `window.oldHA = true` in the console fakes a Home Assistant version without the full queue.
 
 ```
 src/
-  main.ts                 registra las cards (punto de entrada)
-  version.ts              versión (la inyecta el build)
-  constants.ts            tipos de medio, estantes por defecto, etc.
-  models/hass.ts          tipos del objeto hass y las entidades
+  main.ts                 registers the cards (entry point)
+  version.ts              version (injected by the build)
+  constants.ts            media types, default shelves, sizes
+  models/hass.ts          types for the hass object and entities
+  i18n/                   translations (en is the base; es)
   cards/
-    browser-card/         ma-browser-card y sus estilos
-    player-card/          ma-player-card y sus estilos
-  backend/                única forma de hablar con Music Assistant
-    types.ts              contrato: biblioteca, cola, favoritos, reproductor
-    backend.ts            elige native o mass_queue y arma el backend
-    native/               integración oficial de HA
-    mass-queue/           cola y favoritos con la integración mass_queue
-  components/             UI compartida entre las dos cards
-    action-sheet.ts       menú estilo iOS (<ma-player-action-sheet>)
-    toast.ts              aviso flotante (<ma-player-toast>)
-    speaker-picker.ts     selector "Reproducir en"
-    overlay-history.ts    el botón "atrás" cierra diálogos y menús
-    slider.ts             barras de progreso y volumen
-    theme.ts              variables de color (tema claro y oscuro)
+    browser-card/         ma-browser-card and its styles
+    player-card/          ma-player-card, its styles, and the queue (<ma-player-queue>, Lit)
+  backend/                the only code that talks to Music Assistant
+    types.ts              the contract: library, queue, favorites, player
+    backend.ts            picks native or mass_queue and assembles the backend
+    native/               official HA integration
+    mass-queue/           queue and favorites through mass_queue
+  components/             UI shared by both cards
+    action-sheet.ts       iOS-style menu (<ma-player-action-sheet>)
+    toast.ts              floating notice (<ma-player-toast>)
+    speaker-picker.ts     the "Play on" sheet
+    overlay-history.ts    the back button closes dialogs and menus
+    slider.ts             progress and volume sliders
+    theme.ts              color variables (light and dark)
   services/
-    playback-clock.ts     posición de la canción (incluye el parche del bug #7194)
-    lyrics/               letras (LRCLIB y parser LRC)
-    speaker-target.ts     parlante elegido (compartido entre cards)
-    speakers.ts           lista y nombres de parlantes
-  utils/                  escape de HTML, formato, ids, vibración
+    playback-clock.ts     song position (including the #7194 workaround)
+    lyrics/               lyrics (LRCLIB and the LRC parser)
+    speaker-target.ts     chosen speaker, shared between cards
+    speakers.ts           speaker list and names
+  utils/                  HTML escaping, formatting, ids, haptics
 test/                     tests (Vitest)
-dev/                      mocks para probar en el navegador
-scripts/build.mjs         build con esbuild
+dev/                      mocks for trying the cards in a browser
+scripts/build.mjs         esbuild build
 ```
 
-Las cards no llaman a `hass` directamente: todo pasa por `backend/`. La biblioteca y los controles
-del reproductor usan siempre la integración oficial; la cola y los favoritos usan `mass_queue` si
-está instalada (o si se fuerza con `backend:`).
+The cards never call `hass` directly: everything goes through `backend/`. The library and the player controls
+always use the official integration; the queue and favorites use `mass_queue` when it is installed (or forced with `backend:`).
+
+### Adding a language
+
+Copy `src/i18n/es.ts` to a new file named after the language code (e.g. `fr.ts`), translate the values, and add it to
+`LANGUAGES` in `src/i18n/index.ts`. The `Translations` type makes the build fail if a key is missing.

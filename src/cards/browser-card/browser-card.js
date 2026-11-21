@@ -1,6 +1,6 @@
 /*
- * ma-browser-card — buscador de música para Music Assistant.
- * Modos: inline, compact (botón + pantalla completa) y overlay (lo usa el reproductor).
+ * ma-browser-card: search and browse Music Assistant, and play on a speaker.
+ * Modes: inline, compact (a button that opens it full screen) and overlay (used inside ma-player-card).
  */
 
 import { BackendHolder } from "../../backend/backend.js";
@@ -19,6 +19,7 @@ import {
   MIN_TILE_PX,
   TYPES,
 } from "../../constants.js";
+import { hassLanguage, translator } from "../../i18n/index.js";
 import { TARGET_EVENT, Target } from "../../services/speaker-target.js";
 import { listSpeakers, speakerName } from "../../services/speakers.js";
 import { names } from "../../utils/format.js";
@@ -43,8 +44,8 @@ export class MaBrowserCard extends HTMLElement {
     this._home = null; // [{ title, type, items }]
     this._homeStatus = "idle"; // idle | loading | ok | error
     this._homeLoadedAt = 0;
-    this._target = null; // parlante elegido en el selector
-    // Otra tarjeta (o el reproductor) cambió el parlante de esta misma entidad
+    this._target = null;
+    this._t = translator("en");
     this._onTargetEvent = (e) => {
       if (this._config && e.detail.entity === this._config.entity) {
         this._target = e.detail.target;
@@ -53,15 +54,12 @@ export class MaBrowserCard extends HTMLElement {
     };
   }
 
-  // ---------- Ciclo de vida HA ----------
-
   setConfig(config) {
-    if (!config || !config.entity) throw new Error("Falta 'entity' (media_player de Music Assistant)");
+    if (!config || !config.entity) throw new Error("Missing 'entity' (a Music Assistant media_player)");
     const types = (config.media_types || DEFAULT_TYPES).filter((t) => TYPES[t]);
-    if (!types.length) throw new Error(`media_types no válido. Opciones: ${Object.keys(TYPES).join(", ")}`);
+    if (!types.length) throw new Error(`Invalid media_types. Options: ${Object.keys(TYPES).join(", ")}`);
     const mode = config.mode || "compact";
-    // overlay = sin tarjeta propia; lo usa ma-player-card para abrir el buscador por dentro
-    if (!["compact", "inline", "overlay"].includes(mode)) throw new Error("mode debe ser 'compact' o 'inline'");
+    if (!["compact", "inline", "overlay"].includes(mode)) throw new Error("mode must be 'compact' or 'inline'");
     const home = (config.home || DEFAULT_HOME).filter((h) => h && TYPES[h.media_type]);
     this._config = {
       limit: 20,
@@ -83,6 +81,12 @@ export class MaBrowserCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    const lang = hassLanguage(hass);
+    if (lang !== this._lang) {
+      this._lang = lang;
+      this._t = translator(lang);
+      this._rendered = false;
+    }
     if (!this._rendered) this._renderShell();
     else this._updateSpeakerLabels();
   }
@@ -121,19 +125,19 @@ export class MaBrowserCard extends HTMLElement {
     if (this._fullOverlay) this._fullOverlay.close();
   }
 
-  // ---------- Render ----------
-
   _renderShell() {
     if (!this._config) return;
     this._rendered = true;
-    const compact = this._config.mode !== "inline"; // pantalla completa (compact u overlay)
+    const t = this._t;
+    const compact = this._config.mode !== "inline"; // full screen: compact or overlay
     const launcher = this._config.mode === "compact";
     const accent = this._config.accent_color === "theme" ? "var(--primary-color)" : this._config.accent_color || APPLE_RED;
     this.style.setProperty("--accent", accent);
 
     const tabs = this._config.media_types
       .map(
-        (t) => `<button class="tab" role="tab" data-type="${t}" aria-selected="${t === this._type}">${TYPES[t].label}</button>`,
+        (type) =>
+          `<button class="tab" role="tab" data-type="${type}" aria-selected="${type === this._type}">${t(`type.${type}`)}</button>`,
       )
       .join("");
 
@@ -144,26 +148,26 @@ export class MaBrowserCard extends HTMLElement {
             compact || this._config.speaker_selector
               ? `
           <div class="topbar">
-            ${compact ? "<h1>Buscar</h1>" : "<span></span>"}
+            ${compact ? `<h1>${t("browser.title")}</h1>` : "<span></span>"}
             <div class="actions">
               ${
                 this._config.speaker_selector
                   ? `
-              <button class="speaker" id="speaker" aria-label="Elegir parlante">
+              <button class="speaker" id="speaker" aria-label="${t("speakers.choose")}">
                 <ha-icon icon="mdi:speaker"></ha-icon><span id="speakerName">${esc(this._speakerName())}</span>
                 <ha-icon class="chev" icon="mdi:chevron-down"></ha-icon></button>`
                   : ""
               }
-              ${compact ? `<button class="close" id="close" aria-label="Cerrar"><ha-icon icon="mdi:close"></ha-icon></button>` : ""}
+              ${compact ? `<button class="close" id="close" aria-label="${t("common.close")}"><ha-icon icon="mdi:close"></ha-icon></button>` : ""}
             </div>
           </div>`
               : ""
           }
           <div class="search">
             <ha-icon icon="mdi:magnify"></ha-icon>
-            <input id="q" type="search" placeholder="Artistas, canciones, álbumes…" enterkeyhint="search"
+            <input id="q" type="search" placeholder="${t("browser.placeholder")}" enterkeyhint="search"
                    autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(this._q)}" />
-            <button class="clear" id="clear" aria-label="Borrar búsqueda" ${this._q ? "" : "hidden"}>
+            <button class="clear" id="clear" aria-label="${t("browser.clear")}" ${this._q ? "" : "hidden"}>
               <ha-icon icon="mdi:close-circle"></ha-icon></button>
           </div>
           <div class="tabs" role="tablist">${tabs}</div>
@@ -182,7 +186,7 @@ export class MaBrowserCard extends HTMLElement {
           <button class="launcher" id="launch">
             <span class="l-icon"><ha-icon icon="mdi:magnify"></ha-icon></span>
             <span class="l-text">
-              <span class="l-name">${esc(this._config.name || "Buscar música")}</span>
+              <span class="l-name">${esc(this._config.name || t("browser.launcher"))}</span>
               <span class="l-sub" id="lsub">${esc(this._launcherSubtitle())}</span>
             </span>
             <ha-icon class="l-chev" icon="mdi:chevron-right"></ha-icon>
@@ -213,7 +217,7 @@ export class MaBrowserCard extends HTMLElement {
       if (launcher) $("launch").addEventListener("click", () => this._openFull());
       $("close").addEventListener("click", () => this._full.close());
       this._full.addEventListener("close", () => this._onFullClosed());
-      // El encabezado se vuelve "vidrio" con borde al desplazar, como en iOS
+      // The header turns into frosted glass once the content scrolls under it
       this._wrap.addEventListener(
         "scroll",
         () => {
@@ -229,7 +233,7 @@ export class MaBrowserCard extends HTMLElement {
         e.preventDefault();
         clearTimeout(this._debounce);
         this._search();
-        this._input.blur(); // esconde el teclado en tablet/móvil
+        this._input.blur(); // hides the on-screen keyboard
       }
     });
     $("clear").addEventListener("click", () => {
@@ -249,15 +253,11 @@ export class MaBrowserCard extends HTMLElement {
     if (!compact) this._loadHome();
   }
 
-  /** Abre el buscador a pantalla completa (lo usa ma-player-card). */
   open() {
     this._openFull();
   }
 
-  /**
-   * Fondo con la portada de lo que está sonando (lo usa el reproductor).
-   * url: null = tema normal de HA · "" = fondo oscuro sin imagen · "https://…" = portada desenfocada
-   */
+  /** Background behind the full screen: null = HA theme · "" = dark, no image · URL = blurred artwork. */
   setArtwork(url) {
     if (url === this._artwork) return;
     this._artwork = url;
@@ -266,32 +266,26 @@ export class MaBrowserCard extends HTMLElement {
 
   _applyArtwork() {
     const on = this._artwork != null;
-    this.toggleAttribute("artwork", on); // atributo (no clase): el reproductor ya usa .art para la portada
+    this.toggleAttribute("artwork", on); // an attribute, not a class: the player's CSS styles .art
     const bg = this.shadowRoot && this.shadowRoot.getElementById("fullBg");
     if (bg) bg.style.backgroundImage = on && this._artwork ? `url("${this._artwork.replace(/"/g, "%22")}")` : "";
   }
 
   _launcherSubtitle() {
-    return `en ${this._speakerName()}`;
+    return this._t("browser.on_speaker", { name: this._speakerName() });
   }
 
-  // ---------- Pantalla completa ----------
-
   _openFull() {
-    // Con entrada en el historial: el botón "atrás" de Android cierra el buscador
     if (!this._fullOverlay || !this._fullOverlay.open()) return;
     this._haptic("light");
     this._updateColumns();
     this._loadHome();
-    // Con la vista inicial a la vista, no abrimos el teclado: se toca el buscador para escribir.
   }
 
   _onFullClosed() {
     this._menu.close();
     this._input.blur();
   }
-
-  // ---------- Cuadrícula / lista ----------
 
   _updateColumns() {
     if (!this._wrap) return;
@@ -302,13 +296,14 @@ export class MaBrowserCard extends HTMLElement {
     const listCols = Math.max(1, Math.min(3, Math.floor(w / LIST_COL_PX)));
     this._wrap.style.setProperty("--cols", cols);
     this._wrap.style.setProperty("--list-cols", listCols);
-    // Estantes: N portadas visibles + un pedacito de la siguiente (pista de que se desplaza)
+    // N whole tiles per shelf plus a sliver of the next one, hinting that it scrolls
     const n = Math.max(2, Math.round(w / 200));
     this._wrap.style.setProperty("--shelf-w", `${Math.floor((w - 14 * n) / (n + 0.35))}px`);
     this._cols = cols;
   }
 
   _renderBody() {
+    const tr = this._t;
     const t = TYPES[this._type];
     let html = "";
     if (this._status === "idle") {
@@ -321,13 +316,17 @@ export class MaBrowserCard extends HTMLElement {
            <div class="meta"><div class="line"></div><div class="line short"></div></div></div>`;
       html = `<div class="${t.list ? "list" : "grid"}">${skel.repeat(n)}</div>`;
     } else if (this._status === "empty") {
-      html = this._state("mdi:music-off", "Sin resultados", `No encontré ${t.label.toLowerCase()} para «${esc(this._q)}».`);
+      html = this._state(
+        "mdi:music-off",
+        tr("browser.no_results"),
+        esc(tr("browser.no_results_text", { types: tr(`type.${this._type}`).toLowerCase(), query: this._q })),
+      );
     } else if (this._status === "error") {
       html = this._state(
         "mdi:alert-circle-outline",
-        "Algo salió mal",
+        tr("common.error_title"),
         esc(this._error),
-        `<button class="retry" id="retry">Reintentar</button>`,
+        `<button class="retry" id="retry">${tr("common.retry")}</button>`,
       );
     } else {
       const dim = this._status === "loading" ? "dim" : "";
@@ -365,7 +364,7 @@ export class MaBrowserCard extends HTMLElement {
     return TYPES[it.media_type] ? it.media_type : this._type;
   }
 
-  // Devuelve el item de un elemento: "r" = resultados de búsqueda, número = estante de inicio
+  // data-s: "r" for search results, or the index of a home shelf
   _lookup(el) {
     const i = Number(el.dataset.i);
     const s = el.dataset.s;
@@ -388,7 +387,7 @@ export class MaBrowserCard extends HTMLElement {
     const sub = this._subtitle(it, type);
     return `<div class="tile item" data-s="${s}" data-i="${i}" role="button" tabindex="0" aria-label="${esc(it.name)}">
       ${this._art(it, type)}
-        <button class="more" aria-label="Más opciones" tabindex="-1"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button>
+        <button class="more" aria-label="${this._t("browser.more")}" tabindex="-1"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button>
       </div>
       <div class="meta">
         <div class="title">${esc(it.name)}${it.version ? ` <span class="ver">(${esc(it.version)})</span>` : ""}</div>
@@ -406,7 +405,7 @@ export class MaBrowserCard extends HTMLElement {
         <div class="title">${esc(it.name)}${it.version ? ` <span class="ver">(${esc(it.version)})</span>` : ""}</div>
         ${sub ? `<div class="sub">${esc(sub)}</div>` : ""}
       </div>
-      <button class="more" aria-label="Más opciones" tabindex="-1"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button>
+      <button class="more" aria-label="${this._t("browser.more")}" tabindex="-1"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button>
     </div>`;
   }
 
@@ -428,8 +427,6 @@ export class MaBrowserCard extends HTMLElement {
     }
   }
 
-  // ---------- Vista inicial (recientes y favoritos) ----------
-
   async _loadHome(force = false) {
     if (!this._config.home.length || !this._hass) return;
     if (this._homeStatus === "loading") return;
@@ -438,7 +435,7 @@ export class MaBrowserCard extends HTMLElement {
     if (this._status === "idle") this._renderBody();
     try {
       const library = this._backend().library;
-      // Un pedido por estante, en paralelo. Si uno falla, los demás se muestran igual.
+      // One request per shelf; the others still show if one fails.
       const results = await Promise.allSettled(
         this._config.home.map((h) =>
           library.getLibrary({
@@ -452,10 +449,10 @@ export class MaBrowserCard extends HTMLElement {
       this._home = this._config.home.map((h, idx) => {
         const r = results[idx];
         if (r.status === "rejected") {
-          console.warn(`[ma-browser-card] estante "${h.title}" falló:`, r.reason);
-          return { title: h.title, type: h.media_type, items: [] };
+          console.warn(`[ma-browser-card] shelf "${this._shelfTitle(h)}" failed:`, r.reason);
+          return { shelf: h, type: h.media_type, items: [] };
         }
-        return { title: h.title, type: h.media_type, items: r.value };
+        return { shelf: h, type: h.media_type, items: r.value };
       });
       this._homeLoadedAt = Date.now();
       this._homeStatus = results.every((r) => r.status === "rejected") ? "error" : "ok";
@@ -468,12 +465,14 @@ export class MaBrowserCard extends HTMLElement {
     if (this._status === "idle") this._renderBody();
   }
 
+  /** Resolved on render so default titles follow a language change. */
+  _shelfTitle(h) {
+    return h.title || (h.titleKey ? this._t(h.titleKey) : this._t(`type.${h.media_type}`));
+  }
+
   _homeHtml() {
-    const hint = this._state(
-      "mdi:music-circle-outline",
-      "¿Qué querés escuchar?",
-      "Buscá canciones, artistas, álbumes, playlists o radios.",
-    );
+    const t = this._t;
+    const hint = this._state("mdi:music-circle-outline", t("browser.hint_title"), t("browser.hint_text"));
     if (!this._config.home.length) return hint;
     if (this._homeStatus === "loading" && !this._home) {
       const tile = `<div class="tile skel"><div class="art"></div><div class="meta"><div class="line"></div><div class="line short"></div></div></div>`;
@@ -483,9 +482,9 @@ export class MaBrowserCard extends HTMLElement {
     if (this._homeStatus === "error" && !this._home) {
       return this._state(
         "mdi:alert-circle-outline",
-        "No pude cargar tu biblioteca",
+        t("browser.home_error"),
         esc(this._homeError || ""),
-        `<button class="retry" id="homeRetry">Reintentar</button>`,
+        `<button class="retry" id="homeRetry">${t("common.retry")}</button>`,
       );
     }
     const shelves = (this._home || [])
@@ -493,7 +492,7 @@ export class MaBrowserCard extends HTMLElement {
         sh.items.length
           ? `
         <section class="shelf-sec">
-          <h2 class="shelf-title">${esc(sh.title)}</h2>
+          <h2 class="shelf-title">${esc(this._shelfTitle(sh.shelf))}</h2>
           <div class="shelf">${sh.items.map((it, i) => this._tile(it, i, s)).join("")}</div>
         </section>`
           : "",
@@ -501,8 +500,6 @@ export class MaBrowserCard extends HTMLElement {
       .join("");
     return shelves || hint;
   }
-
-  // ---------- Selector de parlante ----------
 
   _speakers() {
     return listSpeakers(this._hass, this._config.entity, this._config.speakers);
@@ -514,25 +511,23 @@ export class MaBrowserCard extends HTMLElement {
 
   _setTarget(entityId) {
     this._target = entityId === this._config.entity ? null : entityId;
-    Target.save(this._config.entity, this._target); // avisa a las demás tarjetas
+    Target.save(this._config.entity, this._target);
     this._updateSpeakerLabels();
   }
 
   _updateSpeakerLabels() {
-    // Si el parlante guardado ya no existe, volvemos al de la configuración
+    // A saved speaker that no longer exists falls back to the configured one
     if (this._target && this._hass && !this._hass.states[this._target]) this._target = null;
     if (this._launcherSub) this._launcherSub.textContent = this._launcherSubtitle();
     if (this._speakerLabel) this._speakerLabel.textContent = this._speakerName();
   }
 
   async _openSpeakers() {
-    const id = await pickSpeaker(this._menu, this._hass, this._speakers(), this._targetEntity());
+    const id = await pickSpeaker(this._menu, this._hass, this._speakers(), this._targetEntity(), this._t);
     if (!id) return;
     this._setTarget(id);
     this._haptic("selection");
   }
-
-  // ---------- Búsqueda ----------
 
   _onInput() {
     this._q = this._input.value;
@@ -549,7 +544,6 @@ export class MaBrowserCard extends HTMLElement {
     this._search();
   }
 
-  /** Acceso a Music Assistant (ver src/backend/). */
   _backend() {
     return this._backends.get({
       mode: this._config.backend || "auto",
@@ -584,7 +578,7 @@ export class MaBrowserCard extends HTMLElement {
         limit: Number(this._config.limit) || 20,
         libraryOnly: !!this._config.library_only,
       });
-      if (reqId !== this._reqId) return; // llegó una respuesta vieja
+      if (reqId !== this._reqId) return;
       this._cache.set(key, items);
       this._items = items;
       this._status = items.length ? "ok" : "empty";
@@ -597,8 +591,6 @@ export class MaBrowserCard extends HTMLElement {
     }
     this._renderBody();
   }
-
-  // ---------- Toques ----------
 
   _bindGrid() {
     const body = this._body;
@@ -664,23 +656,23 @@ export class MaBrowserCard extends HTMLElement {
   async _openMenu(it, el) {
     if (!it) return;
     const type = this._typeOf(it);
-    const t = TYPES[type];
+    const info = TYPES[type];
+    const t = this._t;
     const k = await this._menu.show({
-      header: { title: it.name, subtitle: this._subtitle(it, type), image: it.image, icon: t.icon, round: t.round },
+      header: { title: it.name, subtitle: this._subtitle(it, type), image: it.image, icon: info.icon, round: info.round },
       actions: [
-        { key: "now", label: "Reproducir ahora", icon: "mdi:play" },
-        ...(t.noQueue
+        { key: "now", label: t("browser.play_now"), icon: "mdi:play" },
+        ...(info.noQueue
           ? []
           : [
-              { key: "next", label: "Reproducir a continuación", icon: "mdi:playlist-play" },
-              { key: "add", label: "Agregar a la cola", icon: "mdi:playlist-plus" },
+              { key: "next", label: t("browser.play_next"), icon: "mdi:playlist-play" },
+              { key: "add", label: t("browser.add_to_queue"), icon: "mdi:playlist-plus" },
             ]),
       ],
+      cancelLabel: t("common.cancel"),
     });
     if (k) this._play(it, k === "now" ? null : k, el);
   }
-
-  // ---------- Reproducción ----------
 
   async _play(it, enqueueOverride, el) {
     if (!it || !it.uri) return;
@@ -698,13 +690,12 @@ export class MaBrowserCard extends HTMLElement {
           if (fx.isConnected) fx.className = "fx";
         }, 1400);
       }
-      const speaker = this._speakerName();
-      const msg = {
-        play: `Reproduciendo en ${speaker}`,
-        replace: `Reproduciendo en ${speaker}`,
-        next: "Suena a continuación",
-        add: "Agregado a la cola",
-      }[enqueue];
+      const msg =
+        enqueue === "next"
+          ? this._t("browser.queued_next")
+          : enqueue === "add"
+            ? this._t("browser.queued")
+            : this._t("common.playing_on", { name: this._speakerName() });
       const icon = enqueue === "next" ? "mdi:playlist-play" : enqueue === "add" ? "mdi:playlist-plus" : "mdi:play-circle";
       this._showToast(it, msg, icon);
     } catch (e) {
@@ -715,7 +706,7 @@ export class MaBrowserCard extends HTMLElement {
           if (fx.isConnected) fx.className = "fx";
         }, 2000);
       }
-      this._showToast(it, `No se pudo reproducir: ${(e && e.message) || e}`, "mdi:alert-circle", true);
+      this._showToast(it, this._t("browser.play_failed", { error: (e && e.message) || e }), "mdi:alert-circle", true);
     }
   }
 

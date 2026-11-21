@@ -1,7 +1,6 @@
 import type { HassGetter, RepeatMode } from "../../models/hass.js";
 import type { PlayerApi } from "../types.js";
 
-/** Controles del reproductor: acciones media_player.* de HA. */
 export class HaPlayer implements PlayerApi {
   constructor(private readonly hass: HassGetter) {}
 

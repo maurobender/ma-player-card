@@ -1,6 +1,6 @@
-// Letras desde LRCLIB (https://lrclib.net), gratuito y sin clave.
+// Lyrics from LRCLIB (https://lrclib.net): free, no API key.
 
-/** Respuesta de LRCLIB (/api/get y cada resultado de /api/search). */
+/** LRCLIB record (/api/get, and each /api/search result). */
 export interface LrclibRecord {
   trackName?: string;
   artistName?: string;
@@ -14,7 +14,7 @@ export interface TrackInfo {
   title: string;
   artist?: string;
   album?: string;
-  /** Segundos */
+  /** Seconds */
   duration?: number;
 }
 
@@ -22,10 +22,9 @@ type Fetch = (url: string) => Promise<Pick<Response, "ok" | "status" | "json">>;
 
 const lyricsCache = new Map<string, Promise<LrclibRecord | null>>();
 
-/** Para los tests. */
 export const clearLyricsCache = (): void => lyricsCache.clear();
 
-// "Canción (feat. X) - Remastered 2011" → "Canción"
+// "Song (feat. X) - Remastered 2011" → "Song"
 export const cleanTitle = (t: string | null | undefined): string =>
   String(t || "")
     .replace(/\s*[([](?:feat\.?|ft\.?|with|con|featuring)\s[^)\]]*[)\]]/gi, "")
@@ -43,7 +42,7 @@ export const firstArtist = (a: string | null | undefined): string =>
 
 const hasLyrics = (d: LrclibRecord | null | undefined): boolean => !!d && !!(d.syncedLyrics || d.plainLyrics || d.instrumental);
 
-/** De una búsqueda, la que tenga letra sincronizada y la duración más parecida (±5 s si la sabemos). */
+/** Prefers synced lyrics, then the closest duration (within ±5 s when known). */
 export function bestMatch(list: LrclibRecord[] | null | undefined, dur: number): LrclibRecord | null {
   const ok = (list || [])
     .filter(hasLyrics)
@@ -57,9 +56,9 @@ export function bestMatch(list: LrclibRecord[] | null | undefined, dur: number):
 }
 
 /**
- * Busca la letra probando de lo más preciso a lo más amplio. Music Assistant suele mandar
- * varios artistas juntos ("BOM, Miranda!, Lali") y títulos con "(feat. …)" o "- Remastered",
- * que LRCLIB no encuentra con /api/get; por eso después probamos limpiando y con /api/search.
+ * Tries from the most precise lookup to the broadest. Music Assistant often sends several
+ * artists at once ("BOM, Miranda!, Lali") and titles with "(feat. …)" or "- Remastered",
+ * which LRCLIB's /api/get doesn't match, so we retry with cleaned values and /api/search.
  */
 export function fetchLyrics(base: string, track: TrackInfo, fetchFn: Fetch = fetch): Promise<LrclibRecord | null> {
   const { title, artist, album, duration } = track;
@@ -89,15 +88,15 @@ export function fetchLyrics(base: string, track: TrackInfo, fetchFn: Fetch = fet
       seen.add(url);
       const r = await fetchFn(url);
       if (r.status === 404) continue;
-      if (!r.ok) throw new Error(`LRCLIB respondió ${r.status}`);
+      if (!r.ok) throw new Error(`LRCLIB responded ${r.status}`);
       const d = await r.json();
       const hit = kind === "get" ? (hasLyrics(d) ? (d as LrclibRecord) : null) : bestMatch(d, dur);
       if (hit) {
-        console.info(`[ma-player-card] letra encontrada en LRCLIB (${kind}: ${q})`);
+        console.info(`[ma-player-card] lyrics found on LRCLIB (${kind}: ${q})`);
         return hit;
       }
     }
-    console.info(`[ma-player-card] LRCLIB no tiene letra para «${title}» de ${artist}`);
+    console.info(`[ma-player-card] LRCLIB has no lyrics for "${title}" by ${artist}`);
     return null;
   })();
   lyricsCache.set(key, p);

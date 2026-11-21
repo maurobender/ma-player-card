@@ -21,14 +21,14 @@ const queueResponse = (data: Record<string, unknown>) => ({
 });
 
 describe("resolveBackendName", () => {
-  it("auto usa mass_queue solo si está instalada", () => {
+  it("auto picks mass_queue only when it is installed", () => {
     expect(resolveBackendName(fakeHass(), "auto")).toBe("native");
     expect(resolveBackendName(fakeHass({ services: { mass_queue: {} } }), "auto")).toBe("mass_queue");
     expect(resolveBackendName(fakeHass({ services: { mass_queue: {} } }), "native")).toBe("native");
     expect(resolveBackendName(fakeHass(), "mass_queue")).toBe("mass_queue");
   });
 
-  it("BackendHolder reutiliza el backend y lo cambia si se instala mass_queue", () => {
+  it("BackendHolder reuses the backend and switches when mass_queue appears", () => {
     const hass = fakeHass();
     const holder = new BackendHolder(() => hass);
     const a = holder.get({ entity: ENT });
@@ -40,8 +40,8 @@ describe("resolveBackendName", () => {
   });
 });
 
-describe("biblioteca (integración oficial)", () => {
-  it("busca con el config_entry_id de la entidad y devuelve la lista del tipo pedido", async () => {
+describe("library (official integration)", () => {
+  it("searches with the entity's config_entry_id and returns the requested type", async () => {
     const hass = fakeHass({
       onWs: (msg) => {
         if (msg.type === "config/entity_registry/get") return { platform: "music_assistant", config_entry_id: "E1" };
@@ -62,7 +62,7 @@ describe("biblioteca (integración oficial)", () => {
     });
   });
 
-  it("si el registro de entidades falla, usa la primera integración cargada", async () => {
+  it("falls back to the first loaded entry when the entity registry fails", async () => {
     const hass = fakeHass({
       onWs: (msg) => {
         if (msg.type === "config/entity_registry/get") throw new Error("no admin");
@@ -78,7 +78,7 @@ describe("biblioteca (integración oficial)", () => {
     expect(await lib.entryId()).toBe("ON");
   });
 
-  it("reproduce con play_media en el parlante elegido", async () => {
+  it("plays with play_media on the chosen player", async () => {
     const hass = fakeHass();
     const lib = new NativeLibrary(() => hass, ENT, "E1");
     await lib.play("media_player.cocina", { uri: "x://1", mediaType: "album" }, "replace");
@@ -90,8 +90,8 @@ describe("biblioteca (integración oficial)", () => {
   });
 });
 
-describe("cola (integración oficial)", () => {
-  it("normaliza la canción actual y la próxima", async () => {
+describe("queue (official integration)", () => {
+  it("normalizes the current and next songs", async () => {
     const hass = fakeHass({ onWs: () => queueResponse({}) });
     const info = await createBackend(() => hass, "native", { entity: ENT }).queue.info(ENT);
     expect(info).toMatchObject({ idx: 4, total: 30, elapsed: 12 });
@@ -106,7 +106,7 @@ describe("cola (integración oficial)", () => {
     });
   });
 
-  it("con HA nuevo trae la lista con offset/limit", async () => {
+  it("fetches the list with offset/limit on a recent HA", async () => {
     const hass = fakeHass({
       onWs: (msg) => {
         const d = msg.service_data as { offset?: number; limit?: number };
@@ -119,7 +119,7 @@ describe("cola (integración oficial)", () => {
     expect(queue.partial).toBe(false);
   });
 
-  it("con HA anterior a noviembre de 2026 muestra solo la próxima y no vuelve a intentar", async () => {
+  it("shows only the next song on HA before November 2026, without retrying", async () => {
     const hass = fakeHass({
       onWs: (msg) => {
         if ((msg.service_data as { limit?: number }).limit) throw { message: "extra keys not allowed @ data['offset']" };
@@ -135,15 +135,15 @@ describe("cola (integración oficial)", () => {
     expect(hass.calls.length).toBe(before);
   });
 
-  it("no permite editar", async () => {
+  it("is read-only", async () => {
     const be = createBackend(() => fakeHass(), "native", { entity: ENT });
     expect(be.can).toEqual({ reorder: false, remove: false, playItem: false, unfavorite: false });
     await expect(be.queue.remove(ENT, "q5")).rejects.toBeInstanceOf(UnsupportedError);
   });
 });
 
-describe("cola con mass_queue", () => {
-  it("normaliza los ítems de get_queue_items (sin duración)", async () => {
+describe("queue with mass_queue", () => {
+  it("normalizes get_queue_items items (no duration)", async () => {
     const hass = fakeHass({
       services: { mass_queue: {} },
       onWs: (msg) => {
@@ -174,14 +174,14 @@ describe("cola con mass_queue", () => {
     expect(call?.msg?.target).toBeUndefined();
   });
 
-  it("traduce un movimiento a pasos de subir/bajar/a continuación", () => {
+  it("turns a move into up/down/next steps", () => {
     expect(moveSteps(3, 3)).toEqual([]);
     expect(moveSteps(4, 0)).toEqual(["next"]);
     expect(moveSteps(5, 2)).toEqual(["up", "up", "up"]);
     expect(moveSteps(1, 3)).toEqual(["down", "down"]);
   });
 
-  it("mueve, quita, salta y quita favoritos con el campo entity", async () => {
+  it("moves, removes, jumps and unfavorites with the entity field", async () => {
     const hass = fakeHass({ services: { mass_queue: {} } });
     const be = createBackend(() => hass, "mass_queue", { entity: ENT });
     await be.queue.moveTo(ENT, "q9", 4, 2);
@@ -199,7 +199,7 @@ describe("cola con mass_queue", () => {
   });
 });
 
-describe("favoritos (integración oficial)", () => {
+describe("favorites (official integration)", () => {
   const entities = {
     [ENT]: { entity_id: ENT, device_id: "d1" },
     "button.salon_favorite_current_song": {
@@ -214,7 +214,7 @@ describe("favoritos (integración oficial)", () => {
     },
   };
 
-  it("aprieta el botón del mismo dispositivo", async () => {
+  it("presses the button on the same device", async () => {
     const hass = fakeHass({ entities });
     const fav = createBackend(() => hass, "native", { entity: ENT }).favorites;
     expect(fav.canFavorite(ENT)).toBe(true);
@@ -226,15 +226,15 @@ describe("favoritos (integración oficial)", () => {
     });
   });
 
-  it("sin botón no se puede marcar, y quitar no está soportado", async () => {
+  it("can't favorite without the button, and can't unfavorite", async () => {
     const fav = createBackend(() => fakeHass(), "native", { entity: ENT }).favorites;
     expect(fav.canFavorite(ENT)).toBe(false);
     await expect(fav.unfavorite(ENT)).rejects.toBeInstanceOf(UnsupportedError);
   });
 });
 
-describe("reproductor", () => {
-  it("manda las acciones media_player.* al parlante", async () => {
+describe("player", () => {
+  it("sends media_player.* actions to the player", async () => {
     const hass = fakeHass();
     const p = createBackend(() => hass, "native", { entity: ENT }).player;
     await p.seek(ENT, 105.3);

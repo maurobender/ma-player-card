@@ -1,7 +1,7 @@
 /*
- * Arma el backend que usan las cards, pieza por pieza:
- *   biblioteca y reproductor  → siempre la integración oficial (mass_queue no los tiene)
- *   cola y favoritos          → mass_queue si está instalada (o forzada), si no la oficial
+ * Builds the backend part by part:
+ *   library and player  → always the official integration (mass_queue has neither)
+ *   queue and favorites → mass_queue when installed (or forced), otherwise the official one
  */
 
 import type { Hass, HassGetter } from "../models/hass.js";
@@ -15,7 +15,7 @@ import type { BackendMode, BackendName, MaBackend } from "./types.js";
 
 export interface BackendOptions {
   mode?: BackendMode;
-  /** Entidad de Music Assistant de la card (para encontrar la integración). */
+  /** The card's Music Assistant entity, used to find its integration entry. */
   entity: string;
   configEntryId?: string;
 }
@@ -40,10 +40,7 @@ export function createBackend(hass: HassGetter, name: BackendName, options: Back
   };
 }
 
-/**
- * Lo que guarda cada card: devuelve siempre el mismo backend mientras no cambie
- * cuál corresponde (p. ej. si se instala mass_queue, en la próxima llamada pasa a usarla).
- */
+/** Returns the same backend until the right one changes (e.g. mass_queue gets installed). */
 export class BackendHolder {
   private current: { key: string; backend: MaBackend } | null = null;
 

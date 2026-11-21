@@ -1,9 +1,9 @@
 /*
- * Contrato del backend: la única forma en que las cards hablan con Music Assistant y con HA.
+ * The backend contract: the only way the cards talk to Music Assistant and Home Assistant.
  *
- * Las vistas no preguntan "¿qué backend es?" sino "¿qué se puede hacer?" (`can`).
- * Cada parte (biblioteca, cola, favoritos, reproductor) la resuelve el módulo que la soporte:
- * la integración oficial siempre, y mass_queue (HACS) para editar la cola si está instalada.
+ * Views ask "what can I do?" (`can`), never "which backend is this?". Each part is served by
+ * whichever integration supports it: the official one always, and mass_queue (HACS) for
+ * editing the queue when it is installed.
  */
 
 import type { RepeatMode } from "../models/hass.js";
@@ -12,7 +12,7 @@ export type MediaType = "track" | "artist" | "album" | "playlist" | "radio" | "p
 
 export type Enqueue = "play" | "replace" | "next" | "replace_next" | "add";
 
-/** Ítem tal como lo devuelve Music Assistant en search / get_library (solo los campos que usamos). */
+/** An item as Music Assistant returns it from search / get_library (only the fields we use). */
 export interface MaMediaItem {
   uri: string;
   name: string;
@@ -25,14 +25,13 @@ export interface MaMediaItem {
   [key: string]: unknown;
 }
 
-/** Canción de la cola, igual para todos los backends. */
 export interface QueueItem {
   id: string;
   name: string;
   artist: string;
   album: string;
   image: string;
-  /** Segundos; 0 si el backend no la informa (mass_queue). */
+  /** Seconds; 0 when the backend doesn't report it (mass_queue). */
   duration: number;
   favorite?: boolean;
 }
@@ -40,10 +39,10 @@ export interface QueueItem {
 export interface QueueInfo {
   current: QueueItem | null;
   next: QueueItem | null;
-  /** Índice de la canción actual; -1 si no hay. */
+  /** -1 when nothing is playing. */
   idx: number;
   total: number;
-  /** Segundos transcurridos según la cola de MA (solo para diagnóstico). */
+  /** Seconds played according to the MA queue (diagnostics only). */
   elapsed?: number;
 }
 
@@ -77,12 +76,12 @@ export interface LibraryApi {
 
 export interface QueueApi {
   readonly can: Pick<Capabilities, "reorder" | "remove" | "playItem">;
-  /** true si solo podemos conocer la próxima canción (HA anterior a noviembre de 2026). */
+  /** Only the next song is known (Home Assistant before November 2026). */
   readonly partial: boolean;
   info(entity: string): Promise<QueueInfo>;
-  /** Próximas canciones, después de la actual. */
+  /** The songs after the current one. */
   items(entity: string, info: QueueInfo, limit: number): Promise<QueueItem[]>;
-  /** Mueve una canción de las próximas de la posición `from` a `to` (índices dentro de las próximas). */
+  /** `from` and `to` are indexes into the upcoming songs. */
   moveTo(entity: string, id: string, from: number, to: number): Promise<void>;
   remove(entity: string, id: string): Promise<void>;
   play(entity: string, id: string): Promise<void>;
@@ -90,7 +89,6 @@ export interface QueueApi {
 
 export interface FavoritesApi {
   readonly canUnfavorite: boolean;
-  /** ¿Se puede marcar la canción actual de este parlante? */
   canFavorite(entity: string): boolean;
   favorite(entity: string): Promise<void>;
   unfavorite(entity: string): Promise<void>;

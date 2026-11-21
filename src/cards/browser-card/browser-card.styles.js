@@ -1,10 +1,7 @@
 import { BASE_VARS, DARK_VARS } from "../../components/theme.js";
 import { APPLE_RED } from "../../constants.js";
 
-/* ------------------------------------------------------------------------
- * Estilos — inspirados en Apple Music, construidos sobre las variables de HA
- * para que funcionen en modo claro y oscuro.
- * ---------------------------------------------------------------------- */
+// Styled after Apple Music, on top of HA's theme variables so light and dark modes both work.
 export const STYLES = `
   :host {
     display: block;
@@ -13,7 +10,7 @@ export const STYLES = `
     --art-radius: 10px;
   }
 
-  /* ---------- Botón compacto (tarjeta en el panel) ---------- */
+  /* Compact mode: the launcher button on the dashboard */
   .launcher-card { height: 100%; overflow: hidden; }
   .launcher { all: unset; box-sizing: border-box; width: 100%; height: 100%; min-height: 56px;
     display: flex; align-items: center; gap: 12px; padding: 8px 16px 8px 8px; cursor: pointer;
@@ -31,14 +28,14 @@ export const STYLES = `
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .l-chev { color: var(--secondary-text-color); opacity: .6; }
 
-  /* ---------- Pantalla completa ---------- */
+  /* Full screen */
   dialog.full { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh;
     max-width: none; max-height: none; margin: 0; padding: 0; border: 0;
     background: var(--glass-bg); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
     color: var(--primary-text-color); overflow: hidden; }
   dialog.full::backdrop { background: transparent; }
 
-  /* Con algo sonando: mismo fondo que "Reproduciendo" (portada desenfocada, texto claro) */
+  /* While something plays: the same blurred-artwork background as "Now playing" */
   :host([artwork]) {
     ${DARK_VARS}
   }
@@ -78,7 +75,7 @@ export const STYLES = `
     background: var(--fill-strong); color: var(--secondary-text-color); }
   .close ha-icon { --mdc-icon-size: 22px; }
 
-  /* Buscador estilo iOS */
+  /* Search field */
   .search { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 4px 0 10px;
     border-radius: 12px; background: var(--fill-strong); color: var(--secondary-text-color); }
   .search > ha-icon { --mdc-icon-size: 22px; }
@@ -91,7 +88,7 @@ export const STYLES = `
   .clear ha-icon { --mdc-icon-size: 20px; }
   .clear[hidden] { display: none; }
 
-  /* Pestañas tipo cápsula */
+  /* Media type tabs */
   .tabs { display: flex; gap: 8px; margin-top: 12px; overflow-x: auto; scrollbar-width: none; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { flex: 0 0 auto; height: 36px; padding: 0 16px; border-radius: 999px; border: 0; cursor: pointer;
@@ -99,7 +96,7 @@ export const STYLES = `
     -webkit-tap-highlight-color: transparent; transition: background .2s, color .2s; }
   .tab[aria-selected="true"] { background: var(--accent); color: #fff; font-weight: 600; }
 
-  /* Cuadrícula (artistas, álbumes, playlists, radios) */
+  /* Grid (artists, albums, playlists, radio) */
   .grid { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 20px 14px;
     transition: opacity .2s; }
   .grid.dim, .list.dim { opacity: .5; pointer-events: none; }
@@ -128,7 +125,7 @@ export const STYLES = `
   .sub { font-size: 13px; color: var(--secondary-text-color); margin-top: 2px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  /* Estantes de la vista inicial (desplazamiento horizontal) */
+  /* Home shelves (horizontal scroll) */
   .shelf-sec { margin-bottom: 26px; }
   .shelf-title { margin: 6px 0 12px; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
   .skel-title { width: 220px; height: 22px; border-radius: 8px; background: var(--fill); }
@@ -140,7 +137,7 @@ export const STYLES = `
   .is-full .shelf { margin: 0 calc(-1 * max(20px, env(safe-area-inset-left))); padding-left: max(20px, env(safe-area-inset-left));
     padding-right: max(20px, env(safe-area-inset-right)); scroll-padding-left: max(20px, env(safe-area-inset-left)); }
 
-  /* Lista (canciones) */
+  /* List (songs) */
   .list { display: grid; grid-template-columns: repeat(var(--list-cols), minmax(0, 1fr)); column-gap: 28px;
     transition: opacity .2s; }
   .row { display: flex; align-items: center; gap: 12px; min-height: 64px; position: relative; border-radius: 10px; }
@@ -154,7 +151,7 @@ export const STYLES = `
   .row.pressed, .row:active { transform: none; background: var(--fill); }
   .row:focus-visible { background: var(--fill); }
 
-  /* Feedback sobre la portada */
+  /* Play feedback over the artwork */
   .fx { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
     background: rgba(0, 0, 0, 0); transition: background .2s; }
   .fx.busy, .fx.done { background: rgba(0, 0, 0, .4); }
@@ -167,14 +164,14 @@ export const STYLES = `
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes pop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
-  /* Esqueleto de carga */
+  /* Loading skeleton */
   .skel .art, .skel .line { background: linear-gradient(90deg, var(--fill) 25%, var(--fill-strong) 50%, var(--fill) 75%);
     background-size: 200% 100%; animation: shimmer 1.2s infinite linear; box-shadow: none; }
   .skel .line { height: 12px; border-radius: 6px; margin-top: 6px; width: 80%; }
   .skel .line.short { width: 50%; }
   @keyframes shimmer { to { background-position: -200% 0; } }
 
-  /* Estados vacío / error */
+  /* Empty and error states */
   .state { display: flex; flex-direction: column; align-items: center; text-align: center;
     padding: 56px 16px; color: var(--secondary-text-color); }
   .state ha-icon { --mdc-icon-size: 56px; opacity: .4; margin-bottom: 12px; }

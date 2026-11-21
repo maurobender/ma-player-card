@@ -10,7 +10,7 @@ export interface RecordedCall {
 
 type WsHandler = (msg: Record<string, unknown>) => unknown;
 
-/** hass falso: registra cada llamada y responde los WebSocket con `onWs`. */
+/** A fake hass that records every call and answers WebSocket messages with `onWs`. */
 export function fakeHass(
   opts: {
     onWs?: WsHandler;

@@ -1,10 +1,9 @@
 /**
- * Conecta un <dialog> modal con el historial del navegador, para que el botón "atrás"
- * (Android, app de HA, navegador) cierre el diálogo en vez de salir del panel.
+ * Makes the back button (Android, HA app, browser) close a modal <dialog> instead of leaving
+ * the dashboard.
  *
- * Al abrir agrega una entrada al historial; al cerrar por cualquier vía (botón, Escape,
- * fondo) la saca con history.back(). Se pueden apilar: cada diálogo marca su propia clave
- * en history.state y solo se cierra cuando "atrás" lo saca a él.
+ * Opening pushes a history entry; closing by any means (button, Escape, backdrop) pops it.
+ * Dialogs stack: each marks its own key in history.state and closes only when back removes it.
  */
 export class OverlayHistory {
   readonly dialog: HTMLDialogElement;
@@ -44,7 +43,7 @@ export class OverlayHistory {
 
   private onPopState = (): void => {
     if (this.dialog.open && !history.state?.[this.key]) {
-      this.pushed = false; // el navegador ya volvió atrás
+      this.pushed = false; // the browser already went back
       this.dialog.close();
     }
   };

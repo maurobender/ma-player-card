@@ -1,11 +1,10 @@
-// Aviso flotante de vidrio (abajo al centro), por encima de los diálogos abiertos.
 import { esc } from "../utils/html.js";
 import { DARK_VARS } from "./theme.js";
 
 export interface ToastSpec {
   title: string;
   text: string;
-  /** Ícono mdi: a la izquierda si no hay imagen, a la derecha si la hay. */
+  /** Shown on the left, or on the right when there is an image. */
   icon: string;
   image?: string;
   error?: boolean;
@@ -33,7 +32,7 @@ const STYLES = `
   .toast.error .t-icon, .toast.error > ha-icon:first-child { color: var(--error-color, #ff3b30); }
 `;
 
-/** `<ma-player-toast>`: usar `show()`. Con el atributo `dark` usa el tema oscuro. */
+/** `<ma-player-toast>`: a glass notice at the bottom, above open dialogs. `dark` attribute: dark theme. */
 export class MaToast extends HTMLElement {
   private el: HTMLDivElement;
   private timer?: ReturnType<typeof setTimeout>;
@@ -57,7 +56,7 @@ export class MaToast extends HTMLElement {
       <span class="t-text"><span class="t-title">${esc(title)}</span><span class="t-sub">${esc(text)}</span></span>
       ${image ? `<ha-icon class="t-icon" icon="${esc(icon)}"></ha-icon>` : ""}`;
     clearTimeout(this.timer);
-    // popover: queda por encima de los <dialog> modales (capa superior). Sin soporte, una clase.
+    // A popover lives in the top layer, above modal dialogs. Without popover support, fall back to a class.
     try {
       if (t.showPopover) {
         if (t.matches(":popover-open")) t.hidePopover();
@@ -74,7 +73,7 @@ export class MaToast extends HTMLElement {
     try {
       if (t.hidePopover && t.matches(":popover-open")) t.hidePopover();
     } catch (_) {
-      /* nada */
+      /* already hidden */
     }
     t.classList.remove("show");
   }

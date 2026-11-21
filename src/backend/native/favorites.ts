@@ -2,15 +2,14 @@ import type { HassGetter } from "../../models/hass.js";
 import { type FavoritesApi, UnsupportedError } from "../types.js";
 
 /**
- * Favorito de la canción actual con el botón que Music Assistant crea en cada parlante
- * ("Favorito de la canción actual"). La integración oficial no tiene forma de quitarlo.
+ * Favorites the current song with the button Music Assistant adds to each player device.
+ * The official integration has no way to remove a favorite.
  */
 export class NativeFavorites implements FavoritesApi {
   readonly canUnfavorite: boolean = false;
 
   constructor(protected readonly hass: HassGetter) {}
 
-  /** El botón está en el mismo dispositivo que el media_player. */
   button(entity: string): string | null {
     const ents = this.hass().entities || {};
     const me = ents[entity];
@@ -31,11 +30,11 @@ export class NativeFavorites implements FavoritesApi {
 
   async favorite(entity: string): Promise<void> {
     const btn = this.button(entity);
-    if (!btn) throw new Error("No encontré el botón de favorito de Music Assistant");
+    if (!btn) throw new Error("Music Assistant favorite button not found");
     await this.hass().callService("button", "press", { entity_id: btn });
   }
 
   async unfavorite(_entity: string): Promise<void> {
-    throw new UnsupportedError("La integración oficial no permite quitar favoritos");
+    throw new UnsupportedError("The official integration cannot remove favorites");
   }
 }

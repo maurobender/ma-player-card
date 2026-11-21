@@ -3,6 +3,7 @@ import { OverlayHistory } from "../../components/overlay-history.js";
 import { bindSlider, setSlider } from "../../components/slider.js";
 import { pickSpeaker } from "../../components/speaker-picker.js";
 import { APPLE_RED } from "../../constants.js";
+import { hassLanguage, translator } from "../../i18n/index.js";
 import { parseLrc } from "../../services/lyrics/lrc-parser.js";
 import { fetchLyrics, firstArtist } from "../../services/lyrics/lrclib.js";
 import { PlaybackClock } from "../../services/playback-clock.js";
@@ -17,12 +18,10 @@ import { MaBrowserCard } from "../browser-card/browser-card.js";
 import { STYLES } from "../browser-card/browser-card.styles.js";
 import { PLAYER_STYLES } from "./player-card.styles.js";
 
-/* ========================================================================
- * ma-player-card — reproductor (mini en el panel + "Reproduciendo" a pantalla completa)
- *
- * Todo lo que sale hacia HA / Music Assistant pasa por el backend (src/backend/).
- * Letras sincronizadas: LRCLIB (https://lrclib.net), gratuito y sin clave.
- * ====================================================================== */
+/*
+ * ma-player-card: a mini player on the dashboard that opens "Now playing" full screen,
+ * with the queue, synced lyrics and the music browser.
+ */
 
 export class MaPlayerCard extends HTMLElement {
   constructor() {
@@ -31,11 +30,10 @@ export class MaPlayerCard extends HTMLElement {
     this._id = `ma-player-${nextInstanceId()}`;
     this._view = "art"; // art | queue | lyrics
     this._target = null;
+    this._t = translator("en");
     this._sig = "";
     this._trackKey = "";
     this._fav = null;
-    this._queue = null;
-    this._queueStatus = "idle";
     this._lyrics = null;
     this._lyricIdx = -1;
     this._backends = new BackendHolder(() => this._hass);
@@ -49,10 +47,8 @@ export class MaPlayerCard extends HTMLElement {
     };
   }
 
-  // ---------- Ciclo de vida HA ----------
-
   setConfig(config) {
-    if (!config || !config.entity) throw new Error("Falta 'entity' (media_player de Music Assistant)");
+    if (!config || !config.entity) throw new Error("Missing 'entity' (a Music Assistant media_player)");
     this._config = { queue_limit: 50, lyrics: true, lyrics_url: "https://lrclib.net", ...config };
     this._target = Target.load(this._config.entity);
     this._sig = "";
@@ -62,6 +58,12 @@ export class MaPlayerCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    const lang = hassLanguage(hass);
+    if (lang !== this._lang) {
+      this._lang = lang;
+      this._t = translator(lang);
+      this._rendered = false;
+    }
     if (!this._rendered) this._render();
     if (this._browser) this._browser.hass = hass;
     this._update();
@@ -97,13 +99,10 @@ export class MaPlayerCard extends HTMLElement {
   }
 
   _browserConfig() {
-    // El buscador interno usa las mismas opciones (media_types, home, speakers…) en modo overlay
-    // eslint-disable-next-line no-unused-vars
+    // The embedded browser shares the card's options (media_types, home, speakers…)
     const { type, queue_limit, lyrics, lyrics_url, name, ...rest } = this._config;
     return { ...rest, mode: "overlay" };
   }
-
-  // ---------- Estado del parlante ----------
 
   _entity() {
     const t = this._target;
@@ -124,7 +123,6 @@ export class MaPlayerCard extends HTMLElement {
     return (st && Number(st.attributes.media_duration)) || 0;
   }
 
-  // Reloj de reproducción: ver src/services/playback-clock.ts
   _syncClock(st) {
     const a = (st && st.attributes) || {};
     const key = `${this._entity()}|${a.media_title || ""}|${a.media_artist || ""}`;
@@ -139,8 +137,6 @@ export class MaPlayerCard extends HTMLElement {
     this._clock.sync(key, report, this._duration(st));
   }
 
-  // ---------- Diagnóstico (debug: true) ----------
-
   _dbg(msg) {
     if (!this._config.debug) return;
     const line = `${new Date().toISOString().slice(11, 23)} ${msg}`;
@@ -149,7 +145,7 @@ export class MaPlayerCard extends HTMLElement {
   }
 
   async _dbgPollQueue() {
-    // elapsed_time según la cola de Music Assistant, para comparar con lo que calcula la tarjeta
+    // Music Assistant's own elapsed_time, to compare with the card's position
     if (!this._config.debug || !this._np.open || this._dbgBusy) return;
     this._dbgBusy = true;
     const ent = this._entity();
@@ -174,15 +170,15 @@ export class MaPlayerCard extends HTMLElement {
     const q = this._dbgQueue;
     const ago = (t) => `${((Date.now() - t) / 1000).toFixed(1)}s`;
     el.textContent = [
-      `v${VERSION}  backend: ${this._backend().name}  estado: ${st ? st.state : "-"}  (optimista: ${this._optAt ? this._optPlaying : "-"})`,
-      `HA media_position: ${a.media_position}  duración: ${a.media_duration}`,
+      `v${VERSION}  backend: ${this._backend().name}  state: ${st ? st.state : "-"}  (optimistic: ${this._optAt ? this._optPlaying : "-"})`,
+      `HA media_position: ${a.media_position}  duration: ${a.media_duration}`,
       `HA updated_at: ${a.media_position_updated_at || "-"}`,
-      `reloj tablet: ${new Date().toISOString()}`,
-      `desfase reloj (skew): ${skew == null ? "sin medir" : `${skew} ms`}   compensación MA: ${offset.toFixed(1)}s`,
-      `ancla: ${an ? `${an.pos.toFixed(1)}s hace ${ago(an.at)} ${an.playing ? "▶" : "⏸"}` : "-"}`,
-      `POSICIÓN TARJETA: ${pos.toFixed(1)}s`,
-      `cola MA elapsed_time: ${q ? (q.error ? `error ${q.error}` : `${q.elapsed}s (hace ${ago(q.at)})`) : "…"}`,
-      "— eventos —",
+      `device clock: ${new Date().toISOString()}`,
+      `clock skew: ${skew == null ? "not measured" : `${skew} ms`}   MA offset: ${offset.toFixed(1)}s`,
+      `anchor: ${an ? `${an.pos.toFixed(1)}s ${ago(an.at)} ago ${an.playing ? "▶" : "⏸"}` : "-"}`,
+      `CARD POSITION: ${pos.toFixed(1)}s`,
+      `MA queue elapsed_time: ${q ? (q.error ? `error ${q.error}` : `${q.elapsed}s (${ago(q.at)} ago)`) : "…"}`,
+      "— events —",
       ...(this._dbgLog || []),
     ].join("\n");
   }
@@ -200,10 +196,9 @@ export class MaPlayerCard extends HTMLElement {
     return a.entity_picture_local || a.entity_picture || "";
   }
 
-  // ---------- Render ----------
-
   _render() {
     this._rendered = true;
+    const t = this._t;
     const accent = this._config.accent_color === "theme" ? "var(--primary-color)" : this._config.accent_color || APPLE_RED;
     this.style.setProperty("--accent", accent);
 
@@ -211,15 +206,15 @@ export class MaPlayerCard extends HTMLElement {
       <style>${STYLES}${PLAYER_STYLES}</style>
       <ha-card class="mini" id="mini">
         <div class="mini-row">
-          <button class="mini-main" id="openNp" aria-label="Abrir reproductor">
+          <button class="mini-main" id="openNp" aria-label="${t("player.open")}">
             <span class="mini-art" id="miniArt"></span>
             <span class="mini-text"><span class="mini-title" id="miniTitle"></span><span class="mini-sub" id="miniSub"></span></span>
           </button>
           <div class="mini-ctrls">
-            <button class="ib prev" data-cmd="prev" aria-label="Anterior"><ha-icon icon="mdi:skip-previous"></ha-icon></button>
-            <button class="ib play" data-cmd="playpause" aria-label="Reproducir o pausar"><ha-icon id="miniPlay" icon="mdi:play"></ha-icon></button>
-            <button class="ib next" data-cmd="next" aria-label="Siguiente"><ha-icon icon="mdi:skip-next"></ha-icon></button>
-            <button class="ib search" data-cmd="search" aria-label="Buscar música"><ha-icon icon="mdi:magnify"></ha-icon></button>
+            <button class="ib prev" data-cmd="prev" aria-label="${t("player.previous")}"><ha-icon icon="mdi:skip-previous"></ha-icon></button>
+            <button class="ib play" data-cmd="playpause" aria-label="${t("player.play_pause")}"><ha-icon id="miniPlay" icon="mdi:play"></ha-icon></button>
+            <button class="ib next" data-cmd="next" aria-label="${t("player.next")}"><ha-icon icon="mdi:skip-next"></ha-icon></button>
+            <button class="ib search" data-cmd="search" aria-label="${t("browser.launcher")}"><ha-icon icon="mdi:magnify"></ha-icon></button>
           </div>
         </div>
         <div class="mini-progress"><div class="fill" id="miniFill"></div></div>
@@ -231,46 +226,46 @@ export class MaPlayerCard extends HTMLElement {
         ${this._config.debug ? `<pre class="np-debug" id="npDebug"></pre>` : ""}
         <div class="np-inner">
           <div class="np-top">
-            <button class="np-btn" id="npClose" aria-label="Cerrar"><ha-icon icon="mdi:chevron-down"></ha-icon></button>
+            <button class="np-btn" id="npClose" aria-label="${t("common.close")}"><ha-icon icon="mdi:chevron-down"></ha-icon></button>
             <div class="np-where" id="npWhere"></div>
             <span class="np-top-spacer"></span>
           </div>
           <div class="np-stage" id="npStage" data-view="art">
             <div class="np-art-wrap view-art"><div class="np-art" id="npArt"></div></div>
-            <div class="np-list view-queue" id="npQueue"></div>
+            <ma-player-queue class="np-list view-queue" id="npQueue"></ma-player-queue>
             <div class="np-lyrics view-lyrics" id="npLyrics"></div>
           </div>
           <div class="np-panel">
             <div class="np-titlerow">
               <div class="np-text"><div class="np-title" id="npTitle"></div><div class="np-artist" id="npArtist"></div></div>
-              <button class="np-btn fav" id="npFav" aria-label="Agregar a favoritos" hidden><ha-icon icon="mdi:heart-outline"></ha-icon></button>
+              <button class="np-btn fav" id="npFav" aria-label="${t("player.favorite")}" hidden><ha-icon icon="mdi:heart-outline"></ha-icon></button>
             </div>
-            <div class="slider seek" id="npSeek" role="slider" tabindex="0" aria-label="Posición"><div class="track"><div class="fill"></div></div></div>
+            <div class="slider seek" id="npSeek" role="slider" tabindex="0" aria-label="${t("player.position")}"><div class="track"><div class="fill"></div></div></div>
             <div class="np-times"><span id="npElapsed">0:00</span><span id="npRemain">-0:00</span></div>
             <div class="np-ctrls">
-              <button class="np-btn small" data-cmd="shuffle" id="npShuffle" aria-label="Aleatorio"><ha-icon icon="mdi:shuffle-variant"></ha-icon></button>
-              <button class="np-btn big" data-cmd="prev" aria-label="Anterior"><ha-icon icon="mdi:skip-previous"></ha-icon></button>
-              <button class="np-btn huge" data-cmd="playpause" aria-label="Reproducir o pausar"><ha-icon id="npPlay" icon="mdi:play"></ha-icon></button>
-              <button class="np-btn big" data-cmd="next" aria-label="Siguiente"><ha-icon icon="mdi:skip-next"></ha-icon></button>
-              <button class="np-btn small" data-cmd="repeat" id="npRepeat" aria-label="Repetir"><ha-icon icon="mdi:repeat"></ha-icon></button>
+              <button class="np-btn small" data-cmd="shuffle" id="npShuffle" aria-label="${t("player.shuffle")}"><ha-icon icon="mdi:shuffle-variant"></ha-icon></button>
+              <button class="np-btn big" data-cmd="prev" aria-label="${t("player.previous")}"><ha-icon icon="mdi:skip-previous"></ha-icon></button>
+              <button class="np-btn huge" data-cmd="playpause" aria-label="${t("player.play_pause")}"><ha-icon id="npPlay" icon="mdi:play"></ha-icon></button>
+              <button class="np-btn big" data-cmd="next" aria-label="${t("player.next")}"><ha-icon icon="mdi:skip-next"></ha-icon></button>
+              <button class="np-btn small" data-cmd="repeat" id="npRepeat" aria-label="${t("player.repeat")}"><ha-icon icon="mdi:repeat"></ha-icon></button>
             </div>
             <div class="np-vol">
               <ha-icon icon="mdi:volume-low"></ha-icon>
-              <div class="slider vol" id="npVol" role="slider" tabindex="0" aria-label="Volumen"><div class="track"><div class="fill"></div></div></div>
+              <div class="slider vol" id="npVol" role="slider" tabindex="0" aria-label="${t("player.volume")}"><div class="track"><div class="fill"></div></div></div>
               <ha-icon icon="mdi:volume-high"></ha-icon>
             </div>
             <div class="np-bottom">
-              ${this._config.lyrics ? `<button class="np-btn tool" data-view="lyrics" aria-label="Letra"><ha-icon icon="mdi:message-text-outline"></ha-icon></button>` : `<span class="np-top-spacer"></span>`}
-              <button class="np-pill" id="npSpeaker" aria-label="Elegir parlante"><ha-icon icon="mdi:speaker"></ha-icon><span id="npSpeakerName"></span></button>
-              <button class="np-btn tool" data-cmd="search" aria-label="Buscar música"><ha-icon icon="mdi:magnify"></ha-icon></button>
-              <button class="np-btn tool" data-view="queue" aria-label="Cola"><ha-icon icon="mdi:playlist-music"></ha-icon></button>
+              ${this._config.lyrics ? `<button class="np-btn tool" data-view="lyrics" aria-label="${t("player.lyrics")}"><ha-icon icon="mdi:message-text-outline"></ha-icon></button>` : `<span class="np-top-spacer"></span>`}
+              <button class="np-pill" id="npSpeaker" aria-label="${t("speakers.choose")}"><ha-icon icon="mdi:speaker"></ha-icon><span id="npSpeakerName"></span></button>
+              <button class="np-btn tool" data-cmd="search" aria-label="${t("browser.launcher")}"><ha-icon icon="mdi:magnify"></ha-icon></button>
+              <button class="np-btn tool" data-view="queue" aria-label="${t("player.queue")}"><ha-icon icon="mdi:playlist-music"></ha-icon></button>
             </div>
           </div>
         </div>
       </dialog>
 
       <ma-browser-card id="browser"></ma-browser-card>
-      <!-- Se abren sobre "Reproduciendo", que siempre es oscuro -->
+      <!-- Shown over "Now playing", which is always dark -->
       <ma-player-action-sheet id="sheet" dark></ma-player-action-sheet>
       <ma-player-toast id="toast" dark></ma-player-toast>`;
 
@@ -306,8 +301,9 @@ export class MaPlayerCard extends HTMLElement {
     this._npOverlay = new OverlayHistory(this._np, `${this._id}:np`);
     this._sheet = $("sheet");
     this._toast = $("toast");
+    this._els.queue.addEventListener("queue-info", (e) => this._onQueueInfo(e.detail));
+    this._els.queue.addEventListener("toast", (e) => this._toast.show(e.detail));
 
-    // Buscador interno (mismo componente que la tarjeta de búsqueda, sin tarjeta propia)
     this._browser = $("browser");
     this._browser.setConfig(this._browserConfig());
     if (this._hass) this._browser.hass = this._hass;
@@ -321,12 +317,11 @@ export class MaPlayerCard extends HTMLElement {
     $("openNp").addEventListener("click", () => {
       const st = this._state();
       if (st && st.attributes.media_title) this._openNp();
-      else this._browser.open(); // nada sonando: directo al buscador
+      else this._browser.open();
     });
     $("npClose").addEventListener("click", () => this._np.close());
     $("npSpeaker").addEventListener("click", () => this._openSpeakers());
     this._els.fav.addEventListener("click", () => this._favorite());
-    this._bindQueue();
 
     this._seekCtl = bindSlider(this._els.seek, {
       onInput: (r) => {
@@ -365,7 +360,7 @@ export class MaPlayerCard extends HTMLElement {
       },
     });
 
-    // Letra: tocar una línea salta a ese momento; si el usuario desplaza, pausamos el auto-scroll
+    // Tapping a lyric line seeks to it; scrolling by hand pauses the auto-scroll for a while
     this._els.lyrics.addEventListener("click", (e) => {
       const line = e.target.closest(".ly-line");
       if (!line) return;
@@ -396,10 +391,16 @@ export class MaPlayerCard extends HTMLElement {
     const st = this._state();
     const a = (st && st.attributes) || {};
     if (this._optAt && st && (st.state === "playing") === this._optPlaying) this._optAt = 0;
-    this._syncClock(st); // siempre, aunque nada visible haya cambiado
+    this._syncClock(st); // even when nothing visible changed
     const playing = this._isPlaying(st);
     const pic = this._picture(st);
     const name = speakerName(this._hass, this._entity());
+    Object.assign(this._els.queue, {
+      backend: this._backend(),
+      entity: this._entity(),
+      limit: Number(this._config.queue_limit) || 50,
+      language: hassLanguage(this._hass),
+    });
     const sig = [
       this._entity(),
       st && st.state,
@@ -418,26 +419,25 @@ export class MaPlayerCard extends HTMLElement {
     this._sig = sig;
 
     const e = this._els;
+    const t = this._t;
     const has = !!(st && a.media_title);
     const unavailable = !st || st.state === "unavailable";
-    if (this._browser) this._browser.setArtwork(has ? pic || "" : null); // el buscador usa el mismo fondo
+    if (this._browser) this._browser.setArtwork(has ? pic || "" : null);
 
-    // Mini
     e.mini.classList.toggle("idle", !has);
     this._setArt(e.miniArt, has ? pic : "", "mdi:music");
-    e.miniTitle.textContent = has ? a.media_title : unavailable ? "Parlante no disponible" : "Nada sonando";
+    e.miniTitle.textContent = has ? a.media_title : t(unavailable ? "player.unavailable" : "player.nothing_playing");
     e.miniSub.textContent = has
       ? [a.media_artist, a.media_album_name].filter(Boolean).join(" · ")
-      : `${name} · tocá para buscar música`;
+      : t("player.tap_to_search", { name });
     e.miniPlay.setAttribute("icon", playing ? "mdi:pause" : "mdi:play");
 
-    // Reproduciendo
     e.bg.style.backgroundImage = pic ? `url("${pic.replace(/"/g, "%22")}")` : "";
     this._setArt(e.art, pic, "mdi:music");
     e.art.classList.toggle("paused", !playing);
-    e.title.textContent = has ? a.media_title : "Nada sonando";
+    e.title.textContent = has ? a.media_title : t("player.nothing_playing");
     e.artist.textContent = has ? [a.media_artist, a.media_album_name].filter(Boolean).join(" — ") : "";
-    e.where.textContent = `Reproduciendo en ${name}`;
+    e.where.textContent = t("common.playing_on", { name });
     e.speakerName.textContent = name;
     e.play.setAttribute("icon", playing ? "mdi:pause" : "mdi:play");
     e.shuffle.classList.toggle("on", !!a.shuffle);
@@ -448,7 +448,6 @@ export class MaPlayerCard extends HTMLElement {
       .setAttribute("icon", rep === "one" ? "mdi:repeat-once" : rep === "all" ? "mdi:repeat" : "mdi:repeat-off");
     if (!this._vol || Date.now() - this._vol.at > 2000) setSlider(e.vol, Number(a.volume_level) || 0);
 
-    // ¿Cambió la canción o el parlante?
     const key = `${this._entity()}|${a.media_title || ""}|${a.media_artist || ""}`;
     if (key !== this._trackKey) {
       this._trackKey = key;
@@ -456,7 +455,7 @@ export class MaPlayerCard extends HTMLElement {
       this._lyrics = null;
       this._lyricIdx = -1;
       this._lyUserAt = 0;
-      this._els.lyrics.scrollTop = 0; // canción nueva: la letra arranca desde arriba
+      this._els.lyrics.scrollTop = 0;
       if (this._np.open) this._refreshNp();
     }
     this._renderFav();
@@ -478,10 +477,7 @@ export class MaPlayerCard extends HTMLElement {
     this._renderDebug(st, pos);
   }
 
-  // ---------- Pantalla completa ----------
-
   _openNp() {
-    // Con entrada en el historial: el botón "atrás" de Android cierra la pantalla
     if (!this._npOverlay.open()) return;
     this._haptic("light");
     this._sig = "";
@@ -491,17 +487,17 @@ export class MaPlayerCard extends HTMLElement {
 
   async _openSpeakers() {
     const ids = listSpeakers(this._hass, this._config.entity, this._config.speakers);
-    const id = await pickSpeaker(this._sheet, this._hass, ids, this._entity());
+    const id = await pickSpeaker(this._sheet, this._hass, ids, this._entity(), this._t);
     if (!id) return;
-    // Avisa a todas las cards de esta entidad (esta incluida, ver _onTargetEvent)
+    // Every card for this entity updates through _onTargetEvent, this one included
     Target.save(this._config.entity, id === this._config.entity ? null : id);
     this._haptic("selection");
   }
 
   _refreshNp() {
-    // Cola + estado de favorito (con un pequeño retraso: el parlante suele mandar varios cambios seguidos)
+    // Delayed: a player usually sends several state changes in a row
     clearTimeout(this._queueTimer);
-    this._queueTimer = setTimeout(() => this._loadQueue(this._view === "queue"), 400);
+    this._queueTimer = setTimeout(() => this._els.queue.refresh(this._view === "queue"), 400);
     if (this._view === "lyrics") this._loadLyrics();
   }
 
@@ -510,7 +506,7 @@ export class MaPlayerCard extends HTMLElement {
     this._els.stage.dataset.view = view;
     for (const b of this.shadowRoot.querySelectorAll(".np-btn.tool[data-view]"))
       b.classList.toggle("on", b.dataset.view === view);
-    if (view === "queue") this._loadQueue(true);
+    if (view === "queue") this._els.queue.refresh(true);
     if (view === "lyrics") {
       this._lyricIdx = -1;
       this._lyUserAt = 0;
@@ -520,9 +516,7 @@ export class MaPlayerCard extends HTMLElement {
     this._haptic("selection");
   }
 
-  // ---------- Comandos ----------
-
-  /** Ejecuta un comando del reproductor sobre el parlante actual; los errores solo se registran. */
+  /** Player commands only log their errors: the state update shows whether they worked. */
   _run(label, fn) {
     return fn(this._backend().player, this._entity()).catch((err) => console.error(`[ma-player-card] ${label}`, err));
   }
@@ -557,9 +551,6 @@ export class MaPlayerCard extends HTMLElement {
     }
   }
 
-  // ---------- Backend ----------
-
-  /** backend: auto (mass_queue si está instalado) | native | mass_queue */
   _backend() {
     return this._backends.get({
       mode: this._config.backend || "auto",
@@ -567,8 +558,6 @@ export class MaPlayerCard extends HTMLElement {
       configEntryId: this._config.config_entry_id,
     });
   }
-
-  // ---------- Favorito ----------
 
   _renderFav() {
     const st = this._state();
@@ -585,228 +574,39 @@ export class MaPlayerCard extends HTMLElement {
     const ent = this._entity();
     const remove = !!this._fav;
     if (remove && !be.can.unfavorite) {
-      this._showToast(item, "Ya es favorita · para quitarla, usá Music Assistant", "mdi:heart");
+      this._showToast(item, this._t("player.already_favorite"), "mdi:heart");
       return;
     }
     this._fav = !remove;
-    this._favAt = Date.now(); // durante unos segundos ignoramos lo que diga el servidor (puede venir desactualizado)
+    this._favAt = Date.now(); // the queue reports the old value for a few seconds
     this._renderFav();
     this._haptic(remove ? "light" : "success");
     try {
       if (remove) await be.favorites.unfavorite(ent);
       else await be.favorites.favorite(ent);
-      this._showToast(item, remove ? "Quitada de favoritos" : "Agregada a favoritos", remove ? "mdi:heart-broken" : "mdi:heart");
+      this._showToast(
+        item,
+        this._t(remove ? "player.unfavorited" : "player.favorited"),
+        remove ? "mdi:heart-broken" : "mdi:heart",
+      );
     } catch (err) {
       this._fav = remove;
       this._renderFav();
-      const msg = (err && err.message) || String(err);
-      this._showToast(item, `No se pudo ${remove ? "quitar" : "agregar"}: ${msg}`, "mdi:alert-circle", true);
+      const error = (err && err.message) || String(err);
+      this._showToast(
+        item,
+        this._t(remove ? "player.unfavorite_failed" : "player.favorite_failed", { error }),
+        "mdi:alert-circle",
+        true,
+      );
     }
   }
 
-  // ---------- Cola ----------
-
-  async _loadQueue(withItems) {
-    if (this._qDrag || this._qBusy) return; // no pisamos la lista mientras se arrastra o se aplica un cambio
-    const ent = this._entity();
-    const track = this._trackKey;
-    const be = this._backend();
-    if (withItems && !this._queue) {
-      this._queueStatus = "loading";
-      this._renderQueue();
-    }
-    try {
-      const info = await be.queue.info(ent);
-      let upcoming = this._queue ? this._queue.upcoming : [];
-      if (withItems) upcoming = await be.queue.items(ent, info, Number(this._config.queue_limit) || 50);
-      if (ent !== this._entity() || this._qDrag || this._qBusy) return;
-      this._queue = { current: info.current, upcoming, total: info.total, idx: info.idx };
-      const recentLocal = this._favAt && Date.now() - this._favAt < 6000;
-      if (info.current && track === this._trackKey && !recentLocal) this._fav = !!info.current.favorite;
-      this._queueStatus = "ok";
-    } catch (err) {
-      if (ent !== this._entity()) return;
-      const msg = (err && (err.message || err.code)) || String(err);
-      this._queue = null;
-      this._queueStatus = /no.?active.?queue|cola activa/i.test(msg) ? "empty" : "error";
-      this._queueError = msg;
-    }
+  _onQueueInfo(info) {
+    const recentLocal = this._favAt && Date.now() - this._favAt < 6000;
+    if (info.current && !recentLocal) this._fav = !!info.current.favorite;
     this._renderFav();
-    this._renderQueue();
   }
-
-  _queueRow(it, i, cur) {
-    const can = this._backend().can;
-    const sub = it.artist || it.album || "";
-    const tappable = !cur && can.playItem;
-    return `<div class="q-row ${cur ? "cur" : "up"} ${tappable ? "tap" : ""}" data-i="${i}">
-      <div class="q-art">${it.image ? `<img src="${esc(it.image)}" alt="" loading="lazy" draggable="false" />` : `<ha-icon icon="mdi:music"></ha-icon>`}</div>
-      <div class="q-text"><div class="q-title">${esc(it.name)}</div>${sub ? `<div class="q-sub">${esc(sub)}</div>` : ""}</div>
-      ${it.duration ? `<div class="q-dur">${fmtTime(it.duration)}</div>` : ""}
-      ${!cur && can.remove ? `<button class="q-btn q-del" aria-label="Quitar de la cola"><ha-icon icon="mdi:minus-circle-outline"></ha-icon></button>` : ""}
-      ${!cur && can.reorder ? `<div class="q-btn q-handle" aria-label="Arrastrar para mover"><ha-icon icon="mdi:drag-horizontal-variant"></ha-icon></div>` : ""}
-    </div>`;
-  }
-
-  _renderQueue() {
-    if (this._qDrag) return;
-    const el = this._els.queue;
-    if (this._queueStatus === "loading") {
-      el.innerHTML = `<div class="np-msg">Cargando la cola…</div>`;
-      return;
-    }
-    if (this._queueStatus === "empty" || (this._queueStatus === "ok" && !this._queue.current && !this._queue.upcoming.length)) {
-      el.innerHTML = `<div class="np-msg">No hay nada en la cola.</div>`;
-      return;
-    }
-    if (this._queueStatus === "error") {
-      el.innerHTML = `<div class="np-msg">No pude cargar la cola.<br>${esc(this._queueError || "")}</div>`;
-      return;
-    }
-    if (!this._queue) return;
-    const be = this._backend();
-    const q = this._queue;
-    const left = Math.max(0, q.total - (q.idx + 1));
-    const more = left - q.upcoming.length;
-    const scroll = el.scrollTop;
-    el.innerHTML = `
-      ${q.current ? `<div class="q-sec">Reproduciendo</div>${this._queueRow(q.current, -1, true)}` : ""}
-      <div class="q-sec">A continuación <span>· ${left} canciones</span></div>
-      <div class="q-list">${q.upcoming.length ? q.upcoming.map((x, i) => this._queueRow(x, i)).join("") : `<div class="q-empty">No hay más canciones en la cola.</div>`}</div>
-      ${more > 0 && !be.queue.partial ? `<div class="q-empty">y ${more} más…</div>` : ""}
-      ${
-        be.queue.partial
-          ? `<div class="q-empty">Tu versión de Home Assistant solo informa la próxima canción.
-        La lista completa llega con una versión más nueva de la integración, o instalando mass_queue.</div>`
-          : ""
-      }
-      ${be.can.reorder ? `<div class="q-empty">Tocá una canción para escucharla · arrastrá ≡ para moverla.</div>` : ""}
-      <div class="q-pad"></div>`;
-    el.scrollTop = scroll;
-  }
-
-  _bindQueue() {
-    const el = this._els.queue;
-    el.addEventListener("click", (e) => {
-      if (this._qJustDragged) return;
-      const row = e.target.closest(".q-row.up");
-      if (!row) return;
-      const i = Number(row.dataset.i);
-      if (e.target.closest(".q-del")) this._queueRemove(i);
-      else if (!e.target.closest(".q-handle") && row.classList.contains("tap")) this._queuePlay(i);
-    });
-
-    // Arrastrar ≡ para reordenar
-    el.addEventListener("pointerdown", (e) => {
-      const handle = e.target.closest(".q-handle");
-      if (!handle || e.button > 0) return;
-      const row = handle.closest(".q-row.up");
-      const rows = [...el.querySelectorAll(".q-row.up")];
-      const from = rows.indexOf(row);
-      if (from < 0) return;
-      e.preventDefault();
-      handle.setPointerCapture(e.pointerId);
-      const rects = rows.map((r) => r.getBoundingClientRect());
-      this._qDrag = { row, rows, rects, from, to: from, startY: e.clientY, startScroll: el.scrollTop, h: rects[from].height };
-      row.classList.add("dragging");
-      this._haptic("selection");
-    });
-    el.addEventListener("pointermove", (e) => {
-      const d = this._qDrag;
-      if (!d) return;
-      // Desplazamiento automático cerca de los bordes
-      const box = el.getBoundingClientRect();
-      if (e.clientY < box.top + 50) el.scrollTop -= 8;
-      else if (e.clientY > box.bottom - 50) el.scrollTop += 8;
-      const dy = e.clientY - d.startY + (el.scrollTop - d.startScroll);
-      d.row.style.transform = `translateY(${dy}px)`;
-      const center = d.rects[d.from].top + d.h / 2 + dy;
-      let to = d.from;
-      d.rects.forEach((r, k) => {
-        const mid = r.top + r.height / 2;
-        if (k > d.from && center > mid) to = k;
-        if (k < d.from && center < mid && to >= d.from) to = Math.min(k, to === d.from ? k : to);
-      });
-      if (to !== d.to) this._haptic("selection");
-      d.to = to;
-      d.rows.forEach((r, k) => {
-        if (k === d.from) return;
-        const shift = d.from < k && k <= to ? -d.h : to <= k && k < d.from ? d.h : 0;
-        r.style.transform = shift ? `translateY(${shift}px)` : "";
-      });
-    });
-    const end = () => {
-      const d = this._qDrag;
-      if (!d) return;
-      this._qDrag = null;
-      for (const r of d.rows) r.style.transform = "";
-      d.row.classList.remove("dragging");
-      this._qJustDragged = true;
-      setTimeout(() => (this._qJustDragged = false), 50);
-      if (d.to !== d.from) this._queueMove(d.from, d.to);
-      else this._renderQueue();
-    };
-    el.addEventListener("pointerup", end);
-    el.addEventListener("pointercancel", end);
-  }
-
-  async _queueAction(label, optimistic, run) {
-    const be = this._backend();
-    const ent = this._entity();
-    const backup = this._queue && { ...this._queue, upcoming: [...this._queue.upcoming] };
-    optimistic();
-    this._renderQueue();
-    this._qBusy = true;
-    try {
-      await run(be, ent);
-    } catch (err) {
-      console.error(`[ma-player-card] ${label}`, err);
-      this._queue = backup;
-      this._showToast({ name: label }, (err && err.message) || String(err), "mdi:alert-circle", true);
-    }
-    this._qBusy = false;
-    this._renderQueue();
-    this._loadQueue(true); // releemos el estado real
-  }
-
-  _queueMove(from, to) {
-    const q = this._queue;
-    const item = q.upcoming[from];
-    this._queueAction(
-      "Mover canción",
-      () => {
-        q.upcoming.splice(from, 1);
-        q.upcoming.splice(to, 0, item);
-      },
-      (be, ent) => be.queue.moveTo(ent, item.id, from, to),
-    );
-  }
-
-  _queueRemove(i) {
-    const q = this._queue;
-    const item = q.upcoming[i];
-    this._haptic("light");
-    this._queueAction(
-      "Quitar de la cola",
-      () => {
-        q.upcoming.splice(i, 1);
-        q.total -= 1;
-      },
-      (be, ent) => be.queue.remove(ent, item.id),
-    );
-  }
-
-  async _queuePlay(i) {
-    const item = this._queue.upcoming[i];
-    this._haptic("light");
-    try {
-      await this._backend().queue.play(this._entity(), item.id);
-      this._showToast({ name: item.name, image: item.image }, "Reproduciendo", "mdi:play-circle");
-    } catch (err) {
-      this._showToast({ name: item.name, image: item.image }, (err && err.message) || String(err), "mdi:alert-circle", true);
-    }
-  }
-  // ---------- Letra sincronizada ----------
 
   async _loadLyrics() {
     const st = this._state();
@@ -831,10 +631,10 @@ export class MaPlayerCard extends HTMLElement {
       else if (d.instrumental) lyrics = { status: "instrumental" };
       else lyrics = { status: "plain", text: d.plainLyrics };
     } catch (err) {
-      console.warn("[ma-player-card] letra", err);
+      console.warn("[ma-player-card] lyrics", err);
       lyrics = { status: "error" };
     }
-    if (key !== this._trackKey) return; // cambió la canción mientras buscábamos
+    if (key !== this._trackKey) return;
     this._lyrics = lyrics;
     this._lyricIdx = -1;
     this._renderLyrics();
@@ -842,30 +642,32 @@ export class MaPlayerCard extends HTMLElement {
 
   _renderLyrics() {
     const el = this._els.lyrics;
+    const t = this._t;
     const l = this._lyrics || { status: "loading" };
-    const credit = `<div class="ly-note">Letra: LRCLIB</div>`;
+    const a = (this._state() || { attributes: {} }).attributes;
+    const searchUrl = `https://lrclib.net/search/${encodeURIComponent(`${a.media_title || ""} ${firstArtist(a.media_artist)}`.trim())}`;
     const msg = {
-      loading: "Buscando la letra…",
-      none: `No encontré la letra de esta canción en LRCLIB.<br><a class="ly-link" href="https://lrclib.net/search/${encodeURIComponent(`${(this._state() || { attributes: {} }).attributes.media_title || ""} ${firstArtist((this._state() || { attributes: {} }).attributes.media_artist)}`.trim())}" target="_blank" rel="noopener">Buscar en lrclib.net</a>`,
-      instrumental: "♪ Instrumental ♪",
-      error: "No pude conectar con el servicio de letras.",
+      loading: esc(t("lyrics.loading")),
+      none: `${esc(t("lyrics.none"))}<br><a class="ly-link" href="${esc(searchUrl)}" target="_blank" rel="noopener">${esc(t("lyrics.search"))}</a>`,
+      instrumental: esc(t("lyrics.instrumental")),
+      error: esc(t("lyrics.error")),
     }[l.status];
     if (msg) {
       el.innerHTML = `<div class="np-msg">${msg}</div>`;
       return;
     }
     if (l.status === "plain") {
-      el.innerHTML = `<div class="ly-plain">${esc(l.text)}</div><div class="ly-note">Letra sin sincronizar · LRCLIB</div>`;
+      el.innerHTML = `<div class="ly-plain">${esc(l.text)}</div><div class="ly-note">${esc(t("lyrics.unsynced"))}</div>`;
       return;
     }
     el.innerHTML = `<div class="ly-pad"></div>${l.lines
       .map((x, i) => `<p class="ly-line" data-i="${i}" data-t="${x.t}">${x.text ? esc(x.text) : "♪"}</p>`)
-      .join("")}${credit}<div class="ly-pad"></div>`;
+      .join("")}<div class="ly-note">${esc(t("lyrics.credit"))}</div><div class="ly-pad"></div>`;
     this._lyricIdx = -1;
     this._syncLyrics(this._position(this._state()));
   }
 
-  // Adelanto de la letra en segundos (positivo = las líneas aparecen antes). Configurable con lyrics_offset.
+  // Seconds the lyrics run ahead of the audio (lyrics_offset); lines read better slightly early.
   _lyricsOffset() {
     const o = Number(this._config.lyrics_offset);
     return Number.isFinite(o) ? o : 0.6;
@@ -886,11 +688,10 @@ export class MaPlayerCard extends HTMLElement {
       p.classList.toggle("active", i === idx);
       p.classList.toggle("past", i < idx);
     });
-    // Auto-scroll salvo que el usuario haya desplazado hace poco
     if (this._lyUserAt && Date.now() - this._lyUserAt < 4000) return;
     const active = el.querySelector(".ly-line.active");
     if (active) el.scrollTo({ top: active.offsetTop - el.clientHeight * 0.32, behavior: "smooth" });
-    else el.scrollTo({ top: 0, behavior: "smooth" }); // antes de la primera línea (intro o volver al inicio)
+    else el.scrollTo({ top: 0, behavior: "smooth" }); // before the first line
   }
 
   _showToast(it, text, icon, error = false) {

@@ -3,7 +3,7 @@ import { names } from "../../utils/format.js";
 import { callWithResponse, errorMessage, forEntity } from "../call.js";
 import { type QueueApi, type QueueInfo, type QueueItem, UnsupportedError } from "../types.js";
 
-/** Lo que devuelve music_assistant.get_queue (solo lo que usamos). */
+/** music_assistant.get_queue response (only the fields we use). */
 interface NativeQueueState {
   current_index?: number | null;
   items?: number;
@@ -40,10 +40,10 @@ export function fromNative(qi: NativeQueueItem | null | undefined): QueueItem | 
   };
 }
 
-/** Cola de solo lectura con la integración oficial. */
+/** Read-only queue. */
 export class NativeQueue implements QueueApi {
   readonly can = { reorder: false, remove: false, playItem: false };
-  /** ¿get_queue acepta limit/offset? (HA de noviembre de 2026 en adelante). undefined = no sabemos aún. */
+  /** Whether get_queue accepts offset/limit (Home Assistant from November 2026); undefined until tried. */
   private itemsSupported: boolean | undefined;
 
   constructor(private readonly hass: HassGetter) {}
@@ -77,21 +77,21 @@ export class NativeQueue implements QueueApi {
         return (more.queue_items || []).map(fromNative).filter((x): x is QueueItem => !!x);
       } catch (err) {
         if (!/not a valid option|extra keys/i.test(errorMessage(err))) throw err;
-        this.itemsSupported = false; // versión anterior: solo sabemos la próxima
+        this.itemsSupported = false;
       }
     }
     return info.next ? [info.next] : [];
   }
 
   async moveTo(): Promise<void> {
-    throw new UnsupportedError("La integración oficial no permite mover canciones de la cola");
+    throw new UnsupportedError("The official integration cannot reorder the queue");
   }
 
   async remove(): Promise<void> {
-    throw new UnsupportedError("La integración oficial no permite quitar canciones de la cola");
+    throw new UnsupportedError("The official integration cannot remove songs from the queue");
   }
 
   async play(): Promise<void> {
-    throw new UnsupportedError("La integración oficial no permite saltar a una canción de la cola");
+    throw new UnsupportedError("The official integration cannot jump to a song in the queue");
   }
 }

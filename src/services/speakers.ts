@@ -1,9 +1,8 @@
-// Parlantes de Music Assistant: cuáles se pueden elegir y cómo se llaman.
 import type { Hass } from "../models/hass.js";
 
 /**
- * Parlantes elegibles: los de `speakers` en la configuración o, si no hay, todos los
- * media_player de Music Assistant visibles. El de la configuración va siempre primero.
+ * The players a user can pick: `speakers` from the config, or else every visible Music Assistant
+ * media_player. The card's own entity always comes first.
  */
 export function listSpeakers(hass: Hass | undefined, entity: string, configured?: string[]): string[] {
   if (!hass) return [];

@@ -1,10 +1,10 @@
 import { NativeFavorites } from "../native/favorites.js";
 
-/** Con mass_queue se puede además quitar el favorito (solo canciones de la biblioteca). */
+/** mass_queue can also remove the favorite (library songs only). */
 export class MassQueueFavorites extends NativeFavorites {
   override readonly canUnfavorite: boolean = true;
 
-  /** Siempre: aunque no encontremos el botón, se puede quitar un favorito. */
+  /** Even without the button, a favorite can still be removed. */
   override canFavorite(_entity: string): boolean {
     return true;
   }

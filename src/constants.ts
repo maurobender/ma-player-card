@@ -1,24 +1,24 @@
-// Constantes compartidas por las cards.
-
 import type { Enqueue, MediaType } from "./backend/types.js";
+import type { TranslationKey } from "./i18n/index.js";
 
 export interface MediaTypeInfo {
-  label: string;
-  /** Clave de la lista en la respuesta de music_assistant.search */
+  /** Key of this type's list in the music_assistant.search response. */
   key: string;
   icon: string;
-  /** Qué hace tocar un resultado de este tipo */
+  /** What tapping a result of this type does. */
   enqueue: Enqueue;
-  /** Se muestra como lista en vez de grilla */
+  /** Shown as a list instead of a grid. */
   list?: boolean;
-  /** Portada redonda */
+  /** Round artwork. */
   round?: boolean;
-  /** No tiene sentido encolarlo (radios) */
+  /** Can't be queued (radio). */
   noQueue?: boolean;
 }
 
 export interface HomeShelf {
-  title: string;
+  /** From the user's config; the default shelves use `titleKey` instead. */
+  title?: string;
+  titleKey?: TranslationKey;
   media_type: MediaType;
   favorite?: boolean;
   order_by?: string;
@@ -26,34 +26,24 @@ export interface HomeShelf {
 }
 
 export const TYPES: Record<MediaType, MediaTypeInfo> = {
-  track: { label: "Canciones", key: "tracks", icon: "mdi:music-note", enqueue: "play", list: true },
-  artist: { label: "Artistas", key: "artists", icon: "mdi:account-music", enqueue: "replace", round: true },
-  album: { label: "Álbumes", key: "albums", icon: "mdi:album", enqueue: "replace" },
-  playlist: { label: "Playlists", key: "playlists", icon: "mdi:playlist-music", enqueue: "replace" },
-  radio: { label: "Radios", key: "radio", icon: "mdi:radio", enqueue: "replace", noQueue: true },
-  podcast: { label: "Podcasts", key: "podcasts", icon: "mdi:podcast", enqueue: "replace" },
-  audiobook: { label: "Audiolibros", key: "audiobooks", icon: "mdi:book-music", enqueue: "replace" },
+  track: { key: "tracks", icon: "mdi:music-note", enqueue: "play", list: true },
+  artist: { key: "artists", icon: "mdi:account-music", enqueue: "replace", round: true },
+  album: { key: "albums", icon: "mdi:album", enqueue: "replace" },
+  playlist: { key: "playlists", icon: "mdi:playlist-music", enqueue: "replace" },
+  radio: { key: "radio", icon: "mdi:radio", enqueue: "replace", noQueue: true },
+  podcast: { key: "podcasts", icon: "mdi:podcast", enqueue: "replace" },
+  audiobook: { key: "audiobooks", icon: "mdi:book-music", enqueue: "replace" },
 };
 export const DEFAULT_TYPES: MediaType[] = ["track", "artist", "album", "playlist", "radio"];
-// Estantes de la vista inicial. order_by verificado en music_assistant/controllers/music/constants.py
+// order_by values from music_assistant/controllers/music/constants.py
 export const DEFAULT_HOME: HomeShelf[] = [
-  { title: "Escuchado recientemente", media_type: "album", order_by: "last_played_desc" },
-  { title: "Tus playlists", media_type: "playlist", favorite: true, order_by: "favorite_timestamp_desc" },
-  { title: "Artistas favoritos", media_type: "artist", favorite: true, order_by: "favorite_timestamp_desc" },
-  { title: "Álbumes favoritos", media_type: "album", favorite: true, order_by: "favorite_timestamp_desc" },
-  { title: "Radios favoritas", media_type: "radio", favorite: true, order_by: "favorite_timestamp_desc" },
+  { titleKey: "home.recent", media_type: "album", order_by: "last_played_desc" },
+  { titleKey: "home.playlists", media_type: "playlist", favorite: true, order_by: "favorite_timestamp_desc" },
+  { titleKey: "home.artists", media_type: "artist", favorite: true, order_by: "favorite_timestamp_desc" },
+  { titleKey: "home.albums", media_type: "album", favorite: true, order_by: "favorite_timestamp_desc" },
+  { titleKey: "home.radio", media_type: "radio", favorite: true, order_by: "favorite_timestamp_desc" },
 ];
 export const HOME_TTL_MS = 5 * 60 * 1000;
-export const STATE_LABELS: Record<string, string> = {
-  playing: "Reproduciendo",
-  paused: "En pausa",
-  idle: "Inactivo",
-  on: "Encendido",
-  off: "Apagado",
-  standby: "En espera",
-  buffering: "Cargando",
-  unavailable: "No disponible",
-};
 export const APPLE_RED = "#fa2d48";
 export const DEBOUNCE_MS = 350;
 export const LONG_PRESS_MS = 500;

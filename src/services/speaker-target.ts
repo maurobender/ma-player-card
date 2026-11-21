@@ -1,5 +1,5 @@
-// Parlante elegido, compartido entre ma-browser-card y ma-player-card (por dispositivo).
-// La clave conserva el nombre original para no perder la elección guardada.
+// The player picked in the speaker picker, per device and shared by every card for the same entity.
+// The storage key keeps its original name so existing choices survive.
 export const TARGET_EVENT = "ma-player-card-target";
 export interface TargetEventDetail {
   entity: string;
@@ -12,7 +12,7 @@ export const Target = {
     try {
       return localStorage.getItem(this.key(entity)) || null;
     } catch (_) {
-      return null; // modo privado o almacenamiento bloqueado
+      return null; // private mode or blocked storage
     }
   },
   save(entity: string, target: string | null): void {
@@ -20,7 +20,7 @@ export const Target = {
       if (target) localStorage.setItem(this.key(entity), target);
       else localStorage.removeItem(this.key(entity));
     } catch (_) {
-      /* sin almacenamiento: dura hasta recargar */
+      /* no storage: the choice lasts until reload */
     }
     window.dispatchEvent(new CustomEvent<TargetEventDetail>(TARGET_EVENT, { detail: { entity, target } }));
   },

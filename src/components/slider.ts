@@ -1,9 +1,9 @@
-// Barra deslizable táctil (progreso y volumen). ratio: 0..1
+// Touch slider for progress and volume. Ratios go from 0 to 1.
 
 export interface SliderHandlers {
-  /** Mientras se arrastra. */
+  /** While dragging. */
   onInput: (ratio: number) => void;
-  /** Al soltar (o con las flechas). null si se canceló el gesto. */
+  /** On release or arrow keys; null when the gesture was cancelled. */
   onChange: (ratio: number | null) => void;
 }
 

@@ -3,7 +3,7 @@ import { parseLrc } from "../src/services/lyrics/lrc-parser.js";
 import { bestMatch, cleanTitle, clearLyricsCache, fetchLyrics, firstArtist } from "../src/services/lyrics/lrclib.js";
 
 describe("parseLrc", () => {
-  it("convierte las marcas de tiempo a segundos y ordena", () => {
+  it("converts timestamps to seconds and sorts", () => {
     expect(parseLrc("[00:12.50] Hola\n[00:05.00] Intro\n[01:02] Chau")).toEqual([
       { t: 5, text: "Intro" },
       { t: 12.5, text: "Hola" },
@@ -11,27 +11,27 @@ describe("parseLrc", () => {
     ]);
   });
 
-  it("repite la línea si tiene varias marcas e ignora lo que no tiene", () => {
+  it("repeats lines with several stamps and skips lines without one", () => {
     expect(parseLrc("[ar: BOM]\n[00:01.00][00:30.00] Estribillo\ntexto suelto")).toEqual([
       { t: 1, text: "Estribillo" },
       { t: 30, text: "Estribillo" },
     ]);
   });
 
-  it("tolera null", () => {
+  it("accepts null", () => {
     expect(parseLrc(null)).toEqual([]);
   });
 });
 
 describe("cleanTitle / firstArtist", () => {
-  it("saca feat. y versiones", () => {
+  it("removes feat. and version suffixes", () => {
     expect(cleanTitle("Canción (feat. X)")).toBe("Canción");
     expect(cleanTitle("Song - Remastered 2011")).toBe("Song");
     expect(cleanTitle("Tema [con Y] - Live")).toBe("Tema");
     expect(cleanTitle("Normal")).toBe("Normal");
   });
 
-  it("se queda con el primer artista", () => {
+  it("keeps the first artist", () => {
     expect(firstArtist("BOM, Miranda!, Lali")).toBe("BOM");
     expect(firstArtist("A & B")).toBe("A");
     expect(firstArtist("A feat. B")).toBe("A");
@@ -40,7 +40,7 @@ describe("cleanTitle / firstArtist", () => {
 });
 
 describe("bestMatch", () => {
-  it("prefiere letra sincronizada y duración parecida", () => {
+  it("prefers synced lyrics and a close duration", () => {
     const list = [
       { trackName: "a", duration: 150, plainLyrics: "x" },
       { trackName: "b", duration: 300, syncedLyrics: "[00:01]x" },
@@ -60,7 +60,7 @@ describe("fetchLyrics", () => {
 
   const res = (status: number, body: unknown = null) => ({ ok: status < 400, status, json: async () => body });
 
-  it("si /api/get no la encuentra, prueba limpiando título y artista y después busca", async () => {
+  it("retries with a cleaned title and artist, then searches, when /api/get misses", async () => {
     const urls: string[] = [];
     const fetchFn = vi.fn(async (url: string) => {
       urls.push(url);
@@ -80,14 +80,14 @@ describe("fetchLyrics", () => {
     expect(urls[2]).toContain("/api/search?track_name=VIVO+DEL+POP&artist_name=BOM");
   });
 
-  it("guarda el resultado en caché", async () => {
+  it("caches the result", async () => {
     const fetchFn = vi.fn(async () => res(200, { plainLyrics: "x" }));
     await fetchLyrics("b", { title: "T", artist: "A" }, fetchFn);
     await fetchLyrics("b", { title: "T", artist: "A" }, fetchFn);
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
-  it("devuelve null si nada coincide y falla si el servidor da error", async () => {
+  it("returns null when nothing matches and throws on server errors", async () => {
     expect(await fetchLyrics("b", { title: "Nada" }, async () => res(404))).toBeNull();
     await expect(fetchLyrics("b", { title: "Error" }, async () => res(500))).rejects.toThrow("500");
   });

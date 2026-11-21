@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { speakerSheet } from "../src/components/speaker-picker.js";
+import { translator } from "../src/i18n/index.js";
 import type { HassEntityState } from "../src/models/hass.js";
 import { listSpeakers, speakerName } from "../src/services/speakers.js";
 import { fakeHass } from "./helpers/fake-hass.js";
@@ -30,11 +31,11 @@ const hass = fakeHass({
 });
 
 describe("listSpeakers", () => {
-  it("lista los parlantes de Music Assistant visibles y con estado", () => {
+  it("lists the visible Music Assistant players that have a state", () => {
     expect(listSpeakers(hass, "media_player.salon")).toEqual(["media_player.salon", "media_player.cocina", "media_player.patio"]);
   });
 
-  it("respeta la lista configurada y agrega el de la configuración primero", () => {
+  it("uses the configured list, with the card's entity first", () => {
     expect(listSpeakers(hass, "media_player.salon", ["media_player.cocina", "media_player.dormitorio"])).toEqual([
       "media_player.salon",
       "media_player.cocina",
@@ -42,13 +43,13 @@ describe("listSpeakers", () => {
     ]);
   });
 
-  it("sin hass, ninguno", () => {
+  it("returns nothing without hass", () => {
     expect(listSpeakers(undefined, "media_player.salon")).toEqual([]);
   });
 });
 
 describe("speakerName", () => {
-  it("usa el nombre amigable o el entity_id", () => {
+  it("uses the friendly name, or else the entity_id", () => {
     expect(speakerName(hass, "media_player.cocina")).toBe("cocina");
     expect(speakerName(hass, "media_player.nada")).toBe("media_player.nada");
     expect(speakerName(hass, null)).toBe("");
@@ -58,8 +59,8 @@ describe("speakerName", () => {
 describe("speakerSheet", () => {
   const ids = ["media_player.salon", "media_player.cocina", "media_player.patio"];
 
-  it("muestra qué suena, marca el elegido y pliega los no disponibles", () => {
-    const spec = speakerSheet(hass, ids, "media_player.cocina");
+  it("shows what plays, marks the selected one and folds the unavailable ones", () => {
+    const spec = speakerSheet(hass, ids, "media_player.cocina", translator("es"));
     expect(spec.header?.title).toBe("Reproducir en");
     expect(spec.choices).toEqual([
       {
@@ -85,8 +86,8 @@ describe("speakerSheet", () => {
     expect(spec.more?.choices.map((c) => [c.key, c.disabled])).toEqual([["media_player.patio", true]]);
   });
 
-  it("el elegido queda arriba aunque no esté disponible", () => {
-    const spec = speakerSheet(hass, ids, "media_player.patio");
+  it("keeps the selected player on top even when unavailable", () => {
+    const spec = speakerSheet(hass, ids, "media_player.patio", translator("es"));
     expect(spec.choices?.map((c) => c.key)).toContain("media_player.patio");
     expect(spec.more).toBeUndefined();
   });

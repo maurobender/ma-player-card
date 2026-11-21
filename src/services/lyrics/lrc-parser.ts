@@ -1,6 +1,6 @@
-// "[01:23.45] texto" → [{ t: 83.45, text: "texto" }]
+// "[01:23.45] text" → [{ t: 83.45, text: "text" }]
 export interface LrcLine {
-  /** Segundos */
+  /** Seconds */
   t: number;
   text: string;
 }

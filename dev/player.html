@@ -10,7 +10,7 @@
 <div id="host" style="max-width:700px"></div>
 <script>
   customElements.define("ha-card", class extends HTMLElement {});
-  // ha-icon simulado: muestra el nombre corto del ícono
+  // Fake ha-icon: shows the icon's short name
   customElements.define("ha-icon", class extends HTMLElement {
     static get observedAttributes() { return ["icon"]; }
     connectedCallback() { this.r(); } attributeChangedCallback() { this.r(); }
@@ -27,6 +27,7 @@
   window.CUR = 4;
   const now = () => new Date().toISOString();
   const hass = {
+    locale: { language: new URLSearchParams(location.search).get("lang") || "en" },
     states: {
       "media_player.salon": { state: "playing", attributes: { friendly_name: "Salón", media_title: "BAILAR O MORIR", media_artist: "BOM, Miranda!, Lali",
         media_album_name: "BAILAR O MORIR", media_duration: 154, media_position: 20, media_position_updated_at: now(),

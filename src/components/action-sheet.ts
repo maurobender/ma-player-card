@@ -1,4 +1,3 @@
-// Hoja de acciones estilo iOS: en el teléfono sube desde abajo, en la tablet aparece al centro.
 import { esc } from "../utils/html.js";
 import { nextInstanceId } from "../utils/ids.js";
 import { OverlayHistory } from "./overlay-history.js";
@@ -7,26 +6,26 @@ import { DARK_VARS } from "./theme.js";
 export interface SheetHeader {
   title: string;
   subtitle?: string;
-  /** Portada; si no hay, se muestra `icon` en su lugar. Sin ninguno de los dos, solo el texto. */
+  /** Artwork; `icon` replaces it when missing. With neither, only the text is shown. */
   image?: string;
   icon?: string;
   round?: boolean;
 }
 
-/** Fila de acción: texto a la izquierda, ícono de acento a la derecha. */
+/** Label on the left, accent icon on the right. */
 export interface SheetAction {
   key: string;
   label: string;
   icon?: string;
 }
 
-/** Fila de opción: ícono a la izquierda, dos líneas y tilde si está elegida. */
+/** Icon on the left, two lines of text, and a check mark when selected. */
 export interface SheetChoice {
   key: string;
   label: string;
   sublabel?: string;
   icon: string;
-  /** Ícono en color de acento (p. ej. parlante sonando). */
+  /** Accent-colored icon (e.g. a player that is playing). */
   active?: boolean;
   selected?: boolean;
   disabled?: boolean;
@@ -36,7 +35,7 @@ export interface SheetSpec {
   header?: SheetHeader;
   actions?: SheetAction[];
   choices?: SheetChoice[];
-  /** Opciones extra plegadas al final (p. ej. parlantes no disponibles). */
+  /** Extra choices folded at the end (e.g. unavailable players). */
   more?: { label: string; choices: SheetChoice[] };
   cancelLabel?: string;
 }
@@ -119,8 +118,9 @@ const choiceHtml = (c: SheetChoice): string =>
   </button>`;
 
 /**
- * `<ma-player-action-sheet>`: `show(spec)` devuelve la `key` elegida, o null si se canceló
- * (botón Cancelar, toque en el fondo, Escape o "atrás"). Con el atributo `dark` usa el tema oscuro.
+ * `<ma-player-action-sheet>`: an iOS-style action sheet, rising from the bottom on phones.
+ * `show(spec)` resolves to the chosen `key`, or null when cancelled (Cancel, backdrop, Escape or back).
+ * `dark` attribute: dark theme.
  */
 export class MaActionSheet extends HTMLElement {
   private dialog: HTMLDialogElement;
@@ -136,7 +136,7 @@ export class MaActionSheet extends HTMLElement {
     this.overlay = new OverlayHistory(this.dialog, `sheet-${nextInstanceId()}`);
     this.dialog.addEventListener("close", () => this.settle());
     this.dialog.addEventListener("click", (e) => {
-      if (e.target === this.dialog) return this.overlay.close(); // toque en el fondo
+      if (e.target === this.dialog) return this.overlay.close(); // backdrop
       const btn = (e.target as Element).closest("button");
       if (!btn || btn.disabled) return;
       if (btn.classList.contains("more-toggle")) {
@@ -157,8 +157,8 @@ export class MaActionSheet extends HTMLElement {
   }
 
   show(spec: SheetSpec): Promise<string | null> {
-    this.settle(); // si había otra abierta, cuenta como cancelada
-    const { header, actions = [], choices = [], more, cancelLabel = "Cancelar" } = spec;
+    this.settle(); // a sheet that was already open counts as cancelled
+    const { header, actions = [], choices = [], more, cancelLabel = "Cancel" } = spec;
     this.dialog.innerHTML = `
       <div class="sheet">
         ${header ? headerHtml(header) : ""}
@@ -177,7 +177,7 @@ export class MaActionSheet extends HTMLElement {
     const p = new Promise<string | null>((resolve) => {
       this.resolve = resolve;
     });
-    if (!this.overlay.open()) this.dialog.scrollTop = 0; // ya estaba abierta: solo cambia el contenido
+    if (!this.overlay.open()) this.dialog.scrollTop = 0; // already open: only the content changes
     return p;
   }
 

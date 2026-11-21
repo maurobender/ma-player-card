@@ -1,15 +1,13 @@
 /*
- * ma-player-card — reproductor y buscador de música para Music Assistant (Home Assistant).
+ * Entry point: registers the cards. `npm run build` bundles everything into dist/ma-player-card.js.
  *
- * Este archivo es el punto de entrada: registra las cards. Se compila con
- * `npm run build` a dist/ma-player-card.js (un solo archivo, sin dependencias).
- *
- *   custom:ma-player-card   lo que suena + "Reproduciendo" a pantalla completa (cola, letra, buscador)
- *   custom:ma-browser-card  solo el buscador
+ *   custom:ma-player-card   mini player + full-screen "Now playing" (queue, lyrics, browser)
+ *   custom:ma-browser-card  the browser on its own
  */
 
 import { MaBrowserCard } from "./cards/browser-card/browser-card.js";
 import { MaPlayerCard } from "./cards/player-card/player-card.js";
+import { MaPlayerQueue } from "./cards/player-card/player-queue.js";
 import { MaActionSheet } from "./components/action-sheet.js";
 import { MaToast } from "./components/toast.js";
 import { VERSION } from "./version.js";
@@ -31,9 +29,10 @@ declare global {
 const defineOnce = (name: string, cls: CustomElementConstructor) => {
   if (!customElements.get(name)) customElements.define(name, cls);
 };
-// Componentes compartidos primero: las cards los usan apenas se crean
+// Components first: the cards use them as soon as they are created
 defineOnce("ma-player-toast", MaToast);
 defineOnce("ma-player-action-sheet", MaActionSheet);
+defineOnce("ma-player-queue", MaPlayerQueue);
 defineOnce("ma-browser-card", MaBrowserCard);
 defineOnce("ma-player-card", MaPlayerCard);
 
@@ -42,13 +41,13 @@ const customCards = window.customCards;
 for (const card of [
   {
     type: "ma-player-card",
-    name: "Music Assistant – Reproductor",
-    description: "Lo que está sonando, controles, cola, letra sincronizada y buscador de música.",
+    name: "Music Assistant – Player",
+    description: "What's playing, controls, queue, synced lyrics and a music browser.",
   },
   {
     type: "ma-browser-card",
-    name: "Music Assistant – Buscador",
-    description: "Buscá canciones, artistas, álbumes, playlists y radios y reproducilos en un parlante.",
+    name: "Music Assistant – Browser",
+    description: "Search songs, artists, albums, playlists and radio, and play them on a speaker.",
   },
 ]) {
   if (!customCards.some((c) => c.type === card.type)) {

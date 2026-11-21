@@ -23,6 +23,7 @@
   window.calls = [];
   const img = (n) => `https://picsum.photos/seed/${n}/300`;
   const hass = {
+    locale: { language: new URLSearchParams(location.search).get("lang") || "en" },
     states: { "media_player.salon": { state: "idle", attributes: { friendly_name: "Salón" } },
       "media_player.cocina": { state: "playing", attributes: { friendly_name: "Cocina", media_title: "Bohemian Rhapsody", media_artist: "Queen" } },
       "media_player.dormitorio": { state: "unavailable", attributes: { friendly_name: "Dormitorio" } } },

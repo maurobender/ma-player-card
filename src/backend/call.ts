@@ -1,9 +1,6 @@
 import type { Hass } from "../models/hass.js";
 
-/**
- * Llama a una acción de HA que devuelve datos (return_response) por WebSocket.
- * `hass.callService` no devuelve la respuesta, por eso usamos `call_service` a mano.
- */
+/** Calls an action that returns data. `hass.callService` drops the response, so this goes through the WebSocket. */
 export async function callWithResponse<T>(
   hass: Hass,
   domain: string,
@@ -22,7 +19,7 @@ export async function callWithResponse<T>(
   return ((r && r.response) || r || {}) as T;
 }
 
-/** Las acciones de entidad devuelven un objeto por entidad: { "media_player.x": {...} }. */
+/** Entity actions respond per entity: { "media_player.x": {...} }. */
 export function forEntity<T>(response: Record<string, unknown>, entity: string): T {
   return (response[entity] ?? response) as T;
 }

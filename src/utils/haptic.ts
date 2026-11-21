@@ -1,4 +1,4 @@
-// Vibración: HA (app móvil) la escucha como evento "haptic" que sube por el DOM.
+// The Home Assistant companion app vibrates on a bubbling "haptic" event.
 export type HapticKind = "success" | "warning" | "failure" | "light" | "medium" | "heavy" | "selection";
 
 export const haptic = (el: EventTarget, kind: HapticKind): void => {

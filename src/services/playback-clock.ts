@@ -1,19 +1,16 @@
 /*
- * Reloj de reproducción propio. HA informa la posición como un "ancla":
- * media_position (en segundos enteros) + el momento en que se midió (media_position_updated_at,
- * con el reloj del servidor de Music Assistant). Corregimos tres cosas:
- *   - el desfase entre el reloj del servidor y el del dispositivo (skew),
- *   - el redondeo a segundos enteros (+0,5 s de media),
- *   - que con algunos parlantes (p. ej. Voice PE), tras adelantar o reanudar, Music Assistant
- *     reinicia el stream y cuenta el tiempo DESDE ESE REINICIO (manda pos=0 aunque la canción siga
- *     en el segundo 90). Si eso pasa justo después de una acción nuestra, calculamos la diferencia
- *     (offset) y se la sumamos a todo lo que llegue hasta que cambie la canción.
- *     Bug de MA: https://github.com/music-assistant/support/issues/7194
+ * Playback position. HA reports it as an anchor: media_position (whole seconds) plus when it
+ * was measured (media_position_updated_at, by the Music Assistant server's clock). We correct:
+ *   - the skew between the server's clock and this device's,
+ *   - the truncation to whole seconds (+0.5 s on average),
+ *   - that with some players (e.g. Voice PE) Music Assistant restarts the stream after a seek
+ *     or resume and counts from that restart (it reports 0 while the song is at 90 s). When that
+ *     happens right after one of our actions, we keep the difference (offset) and add it to every
+ *     report until the song changes. MA bug: https://github.com/music-assistant/support/issues/7194
  */
 
-/** Lo que informa HA del parlante en un momento dado. */
 export interface ClockReport {
-  /** Estado de HA (solo para el log de diagnóstico). */
+  /** Only for the debug log. */
   state: string;
   playing: boolean;
   /** media_position */
@@ -28,9 +25,9 @@ export interface ClockAnchor {
   playing: boolean;
 }
 
-/** Tiempo durante el que, después de una acción nuestra, confiamos más en nuestra cuenta que en HA. */
+/** How long after one of our actions we trust our own count over HA's. */
 const EXPECT_MS = 15000;
-/** Diferencia a partir de la cual consideramos que MA reinició el conteo. */
+/** A difference larger than this means MA restarted its count. */
 const RESET_THRESHOLD_S = 3;
 
 export class PlaybackClock {
@@ -39,15 +36,12 @@ export class PlaybackClock {
   private lastUpd: string | undefined;
   private offset = 0;
   private expectAt = 0;
-  /** Desfase entre el reloj de MA y el nuestro + latencia, en ms (el menor observado). */
+  /** MA's clock minus ours, plus latency, in ms (the smallest seen). */
   private skew: number | null = null;
 
   constructor(private readonly log: (msg: string) => void = () => {}) {}
 
-  /**
-   * Incorpora lo que informa HA. `key` identifica canción + parlante: si cambia, empezamos de cero.
-   * `report` es null si no hay estado del parlante.
-   */
+  /** `key` identifies song + player: when it changes, everything resets. `report` is null without player state. */
   sync(key: string, report: ClockReport | null, duration: number, now = Date.now()): void {
     if (key !== this.key) {
       this.key = key;
@@ -59,11 +53,11 @@ export class PlaybackClock {
     if (!report) return;
     const { playing, updatedAt: upd } = report;
     if (upd !== this.lastUpd || !this.anchor) {
-      const live = this.lastUpd !== undefined && upd !== this.lastUpd; // llegó mientras mirábamos
+      const live = this.lastUpd !== undefined && upd !== this.lastUpd; // arrived while we were watching
       this.lastUpd = upd;
       const updMs = Date.parse(upd);
       if (live && updMs) {
-        const obs = now - updMs; // desfase de reloj + latencia: nos quedamos con el menor
+        const obs = now - updMs;
         this.skew = this.skew == null ? obs : Math.min(this.skew, obs);
       }
       let ha = Number(report.position) || 0;
@@ -75,28 +69,28 @@ export class PlaybackClock {
         if (Math.abs(pos - mine) > RESET_THRESHOLD_S) {
           this.offset = mine - ha;
           pos = mine;
-          note = ` · MA reinició el conteo, compenso ${this.offset.toFixed(1)}s`;
+          note = ` · MA restarted its count, offset ${this.offset.toFixed(1)}s`;
         }
       }
       this.anchor = { pos, at: now, playing };
       this.log(
         `HA ${report.state} pos=${report.position} upd=${upd ? upd.slice(11, 23) : "-"} ` +
-          `(${updMs ? ((now - updMs) / 1000).toFixed(1) : "?"}s) → ancla ${pos.toFixed(1)}${note}`,
+          `(${updMs ? ((now - updMs) / 1000).toFixed(1) : "?"}s) → anchor ${pos.toFixed(1)}${note}`,
       );
     } else if (this.anchor.playing !== playing) {
-      // pausa/reanudación sin ancla nueva: re-anclamos donde estábamos
+      // paused or resumed without a new anchor: re-anchor where we are
       this.anchor = { pos: this.position(duration, now), at: now, playing };
     }
   }
 
-  /** Acción nuestra (adelantar, pausar, reanudar): sabemos dónde está, aunque HA tarde o mienta. */
+  /** After our own seek, pause or resume we know the position, even if HA is late or wrong. */
   setLocal(pos: number, playing: boolean, now = Date.now()): void {
-    this.log(`local ${playing ? "▶" : "⏸"} ancla ${pos.toFixed(1)}`);
+    this.log(`local ${playing ? "▶" : "⏸"} anchor ${pos.toFixed(1)}`);
     this.expectAt = now;
     this.anchor = { pos, at: now, playing };
   }
 
-  /** Posición actual en segundos, entre 0 y la duración (si se conoce). */
+  /** Seconds, clamped between 0 and the duration when known. */
   position(duration: number, now = Date.now()): number {
     const an = this.anchor;
     if (!an) return 0;
@@ -105,7 +99,6 @@ export class PlaybackClock {
     return Math.max(0, p);
   }
 
-  /** Para el panel de diagnóstico. */
   get debug(): { anchor: ClockAnchor | null; skew: number | null; offset: number } {
     return { anchor: this.anchor, skew: this.skew, offset: this.offset };
   }

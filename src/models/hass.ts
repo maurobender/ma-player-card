@@ -1,7 +1,4 @@
-/*
- * Lo mínimo que usamos del objeto `hass` que Home Assistant le pasa a las cards.
- * No es el tipo completo de HA: solo lo que lee o llama este proyecto.
- */
+/* The parts of Home Assistant's `hass` object this project uses; not the full type. */
 
 export interface MediaPlayerAttributes {
   friendly_name?: string;
@@ -28,7 +25,7 @@ export interface HassEntityState<A = MediaPlayerAttributes> {
   last_updated?: string;
 }
 
-/** Entrada del registro de entidades (`hass.entities`). */
+/** An entry of `hass.entities` (the entity registry). */
 export interface HassEntityRegistryEntry {
   entity_id: string;
   device_id?: string | null;
@@ -38,6 +35,8 @@ export interface HassEntityRegistryEntry {
 }
 
 export interface Hass {
+  language?: string;
+  locale?: { language?: string };
   states: Record<string, HassEntityState | undefined>;
   entities?: Record<string, HassEntityRegistryEntry | undefined>;
   services?: Record<string, Record<string, unknown> | undefined>;
@@ -45,5 +44,5 @@ export interface Hass {
   callService(domain: string, service: string, data?: Record<string, unknown>): Promise<unknown>;
 }
 
-/** Las clases de acceso a HA reciben una función: `hass` cambia en cada actualización. */
+/** A getter, because cards receive a new `hass` object on every state change. */
 export type HassGetter = () => Hass;
