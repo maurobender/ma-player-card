@@ -71,7 +71,10 @@ export interface LibraryQuery {
 export interface LibraryApi {
   search(query: string, type: MediaType, options: SearchOptions): Promise<MaMediaItem[]>;
   getLibrary(query: LibraryQuery): Promise<MaMediaItem[]>;
-  play(entity: string, item: { uri: string; mediaType: MediaType }, enqueue: Enqueue): Promise<void>;
+  /** The tracks of an album or playlist, or the albums of an artist. */
+  browse(entity: string, item: { uri: string; mediaType: MediaType }): Promise<MaMediaItem[]>;
+  /** Several URIs play in order, e.g. an album from one of its tracks. */
+  play(entity: string, item: { uri: string | string[]; mediaType: MediaType }, enqueue: Enqueue): Promise<void>;
 }
 
 export interface QueueApi {

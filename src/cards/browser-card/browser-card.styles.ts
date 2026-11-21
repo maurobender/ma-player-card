@@ -9,6 +9,8 @@ export const browserStyles = css`
     --accent: ${unsafeCSS(APPLE_RED)};
     ${unsafeCSS(BASE_VARS)}
     --art-radius: 10px;
+    /* Accent-colored text on a translucent fill */
+    --accent-text: var(--accent);
   }
 
   /* Compact mode: the launcher button on the dashboard */
@@ -39,6 +41,8 @@ export const browserStyles = css`
   /* While something plays: the same blurred-artwork background as "Now playing" */
   :host([artwork]) {
     ${unsafeCSS(DARK_VARS)}
+    /* The red gets lost over a saturated artwork blur, so text on fills turns white */
+    --accent-text: #fff;
   }
   :host([artwork]) dialog.full { background: #1c1c1e; }
   .full-bg, .full-shade { display: none; position: absolute; pointer-events: none; }
@@ -66,7 +70,7 @@ export const browserStyles = css`
   .actions { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .speaker { display: flex; align-items: center; gap: 6px; height: 40px; max-width: 46vw; padding: 0 10px 0 12px;
     border-radius: 999px; border: 0; cursor: pointer; font: inherit; font-size: 15px; font-weight: 600;
-    background: var(--fill-strong); color: var(--accent); -webkit-tap-highlight-color: transparent; }
+    background: var(--fill-strong); color: var(--accent-text); -webkit-tap-highlight-color: transparent; }
   .speaker span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .speaker ha-icon { --mdc-icon-size: 20px; flex: 0 0 auto; }
   .speaker .chev { --mdc-icon-size: 18px; opacity: .7; }
@@ -152,6 +156,43 @@ export const browserStyles = css`
   .row .more:active { background: var(--fill); }
   .row.pressed, .row:active { transform: none; background: var(--fill); }
   .row:focus-visible { background: var(--fill); }
+
+  /* Artist, album and playlist pages */
+  .back { display: flex; align-items: center; min-width: 0; max-width: 40%; height: 40px; padding: 0 14px 0 4px;
+    border-radius: 999px; border: 0; cursor: pointer; font: inherit; font-size: 16px; font-weight: 600;
+    background: var(--fill-strong); color: var(--accent-text); -webkit-tap-highlight-color: transparent; }
+  .back span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .back ha-icon { --mdc-icon-size: 26px; flex: 0 0 auto; }
+  .back:active { filter: brightness(.94); }
+  .nav-title { flex: 1; min-width: 0; text-align: center; font-size: 17px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .2s; }
+  .scrolled .nav-title { opacity: 1; }
+  .page { animation: pageIn .25s ease-out; }
+  @keyframes pageIn { from { opacity: 0; transform: translateX(16px); } }
+  .page-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 16px; margin: 4px 0 24px; }
+  .page-head .art { width: min(240px, 62cqw); flex: 0 0 auto; box-shadow: 0 12px 32px rgba(0, 0, 0, .22); }
+  .page-info { min-width: 0; max-width: 100%; }
+  .page-title { font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: -.01em; }
+  .page-sub { font-size: 17px; color: var(--accent-text); margin-top: 4px; }
+  .page-count { font-size: 13px; color: var(--secondary-text-color); margin-top: 4px; }
+  .page-actions { display: flex; justify-content: center; gap: 10px; margin-top: 16px; }
+  .pill { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 22px; border-radius: 999px; border: 0;
+    cursor: pointer; font: inherit; font-size: 16px; font-weight: 600; background: var(--fill-strong); color: var(--accent-text);
+    -webkit-tap-highlight-color: transparent; transition: transform .1s; }
+  .pill ha-icon { --mdc-icon-size: 22px; }
+  .pill.icon { width: 44px; padding: 0; justify-content: center; }
+  .pill:active { transform: scale(.95); }
+  .pill.primary { background: var(--accent); color: #fff; }
+  @container (min-width: 640px) {
+    .page-head { flex-direction: row; align-items: flex-end; text-align: left; gap: 28px; }
+    .page-head .art { width: 220px; }
+    .page-title { font-size: 30px; }
+    .page-actions { justify-content: flex-start; }
+  }
+  .tracks .row::after { left: 40px; }
+  .num { position: relative; width: 28px; flex: 0 0 28px; text-align: center; font-size: 15px; font-variant-numeric: tabular-nums;
+    color: var(--secondary-text-color); align-self: stretch; display: grid; place-items: center; container-type: inline-size; }
+  .num .fx { border-radius: 6px; }
 
   /* Play feedback over the artwork */
   .fx { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;

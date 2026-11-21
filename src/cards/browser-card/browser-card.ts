@@ -4,6 +4,7 @@
  */
 
 import { html, LitElement, nothing, type PropertyValues, type TemplateResult } from "lit";
+import { keyed } from "lit/directives/keyed.js";
 import { live } from "lit/directives/live.js";
 import { BackendHolder } from "../../backend/backend.js";
 import { errorMessage } from "../../backend/call.js";
@@ -68,6 +69,27 @@ interface Shelf {
   items: MaMediaItem[];
 }
 
+/** An artist, album or playlist opened from the results. */
+interface Page {
+  item: MaMediaItem;
+  type: MediaType;
+  status: "loading" | "ok" | "error";
+  /** Tracks of an album or playlist, albums of an artist. */
+  items: MaMediaItem[];
+  error: string;
+  /** Scroll position of the view below, restored when going back. */
+  scrollBelow: number;
+}
+
+/** Item origin in the DOM (`data-s`): "r" search results · "p" page content · "h" page header · shelf index. */
+interface Found {
+  it: MaMediaItem;
+  s: string;
+  i: number;
+}
+
+const EXPANDABLE = new Set<MediaType>(["artist", "album", "playlist"]);
+
 interface Layout {
   cols: number;
   listCols: number;
@@ -123,6 +145,7 @@ export class MaBrowserCard extends LitElement {
     target: { state: true },
     layout: { state: true },
     scrolled: { state: true },
+    pages: { state: true },
   };
 
   declare hass?: Hass;
@@ -139,12 +162,15 @@ export class MaBrowserCard extends LitElement {
   declare target: string | null;
   declare layout: Layout;
   declare scrolled: boolean;
+  declare pages: Page[];
 
   private readonly instanceId = `ma-browser-${nextInstanceId()}`;
   private readonly backends = new BackendHolder(() => this.hass as Hass);
   private uiLang = "";
   private t: Translate = translator("en");
   private cache = new Map<string, MaMediaItem[]>();
+  private pageCache = new Map<string, MaMediaItem[]>();
+  private readonly pageKey = `ma:${this.instanceId}:page`;
   private reqId = 0;
   private homeLoadedAt = 0;
   private debounce?: ReturnType<typeof setTimeout>;
@@ -176,6 +202,7 @@ export class MaBrowserCard extends LitElement {
     this.target = null;
     this.layout = { cols: 4, listCols: 1 };
     this.scrolled = false;
+    this.pages = [];
   }
 
   setConfig(input: BrowserConfigInput): void {
@@ -233,12 +260,14 @@ export class MaBrowserCard extends LitElement {
   connectedCallback(): void {
     super.connectedCallback();
     window.addEventListener(TARGET_EVENT, this.onTargetEvent);
+    window.addEventListener("popstate", this.onPopState);
     if (this.observed) this.ro.observe(this.observed);
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
     window.removeEventListener(TARGET_EVENT, this.onTargetEvent);
+    window.removeEventListener("popstate", this.onPopState);
     clearTimeout(this.debounce);
     clearTimeout(this.longPress.timer);
     this.ro.disconnect();
@@ -268,7 +297,7 @@ export class MaBrowserCard extends LitElement {
     const dialog = this.renderRoot.querySelector<HTMLDialogElement>("dialog.full");
     if (dialog !== (this.overlay?.dialog ?? null)) {
       this.overlay?.close();
-      this.overlay = dialog ? new OverlayHistory(dialog, `${this.instanceId}:full`) : null;
+      this.overlay = dialog ? new OverlayHistory(dialog, `${this.instanceId}:full`, () => this.pages.length) : null;
     }
     const wrap = this.renderRoot.querySelector(".wrap");
     if (wrap !== this.observed) {
@@ -343,9 +372,13 @@ export class MaBrowserCard extends LitElement {
     `;
   }
 
+  private get page(): Page | undefined {
+    return this.pages.at(-1);
+  }
+
   private renderBrowser(full: boolean) {
-    const { t, layout } = this;
-    const c = this.config as BrowserConfig;
+    const { layout } = this;
+    const page = this.page;
     const vars = `--cols: ${layout.cols}; --list-cols: ${layout.listCols};${layout.shelfW ? ` --shelf-w: ${layout.shelfW}px;` : ""}`;
     return html`
       <div
@@ -354,28 +387,67 @@ export class MaBrowserCard extends LitElement {
         @scroll=${full ? this.onScroll : nothing}
       >
         <div class="head">
+          ${page ? this.renderPageNav(page, full) : this.renderSearchHead(full)}
+        </div>
+        <div
+          class="body"
+          @pointerdown=${this.onPointerDown}
+          @pointermove=${this.onPointerMove}
+          @pointerup=${this.cancelLongPress}
+          @pointercancel=${this.cancelLongPress}
+          @pointerleave=${this.cancelLongPress}
+          @contextmenu=${this.onContextMenu}
+          @click=${this.onItemClick}
+          @keydown=${this.onItemKey}
+        >
+          ${page ? keyed(`${this.pages.length}|${page.item.uri}`, this.renderPage(page)) : this.renderBody()}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderActions(full: boolean) {
+    const { t } = this;
+    return html`<div class="actions">
+      ${
+        this.config?.speaker_selector
+          ? html`<button class="speaker" aria-label=${t("speakers.choose")} @click=${this.openSpeakers}>
+            <ha-icon icon="mdi:speaker"></ha-icon><span>${this.speakerLabel}</span>
+            <ha-icon class="chev" icon="mdi:chevron-down"></ha-icon>
+          </button>`
+          : nothing
+      }
+      ${
+        full
+          ? html`<button class="close" aria-label=${t("common.close")} @click=${() => this.overlay?.close()}>
+            <ha-icon icon="mdi:close"></ha-icon>
+          </button>`
+          : nothing
+      }
+    </div>`;
+  }
+
+  private renderPageNav(page: Page, full: boolean) {
+    const below = this.pages.at(-2);
+    return html`<div class="topbar nav">
+      <button class="back" @click=${this.goBack}>
+        <ha-icon icon="mdi:chevron-left"></ha-icon><span>${below ? below.item.name : this.t("browser.title")}</span>
+      </button>
+      <div class="nav-title">${page.item.name}</div>
+      ${this.renderActions(full)}
+    </div>`;
+  }
+
+  private renderSearchHead(full: boolean) {
+    const { t } = this;
+    const c = this.config as BrowserConfig;
+    return html`
           ${
             full || c.speaker_selector
               ? html`
                 <div class="topbar">
                   ${full ? html`<h1>${t("browser.title")}</h1>` : html`<span></span>`}
-                  <div class="actions">
-                    ${
-                      c.speaker_selector
-                        ? html`<button class="speaker" aria-label=${t("speakers.choose")} @click=${this.openSpeakers}>
-                          <ha-icon icon="mdi:speaker"></ha-icon><span>${this.speakerLabel}</span>
-                          <ha-icon class="chev" icon="mdi:chevron-down"></ha-icon>
-                        </button>`
-                        : nothing
-                    }
-                    ${
-                      full
-                        ? html`<button class="close" aria-label=${t("common.close")} @click=${() => this.overlay?.close()}>
-                          <ha-icon icon="mdi:close"></ha-icon>
-                        </button>`
-                        : nothing
-                    }
-                  </div>
+                  ${this.renderActions(full)}
                 </div>
               `
               : nothing
@@ -415,21 +487,6 @@ export class MaBrowserCard extends LitElement {
                 </div>`
               : nothing
           }
-        </div>
-        <div
-          class="body"
-          @pointerdown=${this.onPointerDown}
-          @pointermove=${this.onPointerMove}
-          @pointerup=${this.cancelLongPress}
-          @pointercancel=${this.cancelLongPress}
-          @pointerleave=${this.cancelLongPress}
-          @contextmenu=${this.onContextMenu}
-          @click=${this.onItemClick}
-          @keydown=${this.onItemKey}
-        >
-          ${this.renderBody()}
-        </div>
-      </div>
     `;
   }
 
@@ -470,6 +527,70 @@ export class MaBrowserCard extends LitElement {
     return info.list
       ? html`<div class="list ${dim}">${this.items.map((it, i) => this.renderRow(it, i))}</div>`
       : html`<div class="grid ${dim}">${this.items.map((it, i) => this.renderTile(it, i, "r"))}</div>`;
+  }
+
+  private renderPage(page: Page): TemplateResult {
+    const { t } = this;
+    const { item, type } = page;
+    const sub = subtitle(item, type);
+    const songs = type !== "artist" && page.status === "ok" && page.items.length;
+    return html`<div class="page">
+      <section class="page-head">
+        ${this.renderArt(item, type, "h")}
+        <div class="page-info">
+          <div class="page-title">${item.name}</div>
+          ${sub ? html`<div class="page-sub">${sub}</div>` : nothing}
+          ${songs ? html`<div class="page-count">${t("browser.songs", { n: page.items.length })}</div>` : nothing}
+          <div class="page-actions">
+            <button class="pill primary" @click=${() => this.playPage(false)}>
+              <ha-icon icon="mdi:play"></ha-icon>${t("browser.play")}
+            </button>
+            <button class="pill" @click=${() => this.playPage(true)}>
+              <ha-icon icon="mdi:shuffle-variant"></ha-icon>${t("browser.shuffle")}
+            </button>
+            <button class="pill icon" aria-label=${t("browser.more")} @click=${() => this.openMenu({ it: item, s: "h", i: 0 })}>
+              <ha-icon icon="mdi:dots-horizontal"></ha-icon>
+            </button>
+          </div>
+        </div>
+      </section>
+      ${this.renderPageContent(page)}
+    </div>`;
+  }
+
+  private renderPageContent(page: Page): TemplateResult {
+    const { t } = this;
+    const artist = page.type === "artist";
+    if (page.status === "loading") {
+      const skel = artist
+        ? html`<div class="tile skel"><div class="art"></div><div class="meta"><div class="line"></div></div></div>`
+        : html`<div class="row skel"><div class="meta"><div class="line"></div><div class="line short"></div></div></div>`;
+      return html`<div class=${artist ? "grid" : "list"}>${Array.from({ length: artist ? this.layout.cols : 8 }, () => skel)}</div>`;
+    }
+    if (page.status === "error") {
+      return this.renderState(
+        "mdi:alert-circle-outline",
+        t("common.error_title"),
+        page.error,
+        html`<button class="retry" @click=${() => this.loadPage(page, true)}>${t("common.retry")}</button>`,
+      );
+    }
+    if (!page.items.length) return this.renderState("mdi:music-off", t("browser.page_empty"), "");
+    if (artist) {
+      return html`<h2 class="shelf-title">${t("browser.albums")}</h2>
+        <div class="grid">${page.items.map((it, i) => this.renderTile(it, i, "p"))}</div>`;
+    }
+    if (page.type === "playlist") return html`<div class="list">${page.items.map((it, i) => this.renderRow(it, i, "p"))}</div>`;
+    const albumArtist = page.item.artists?.[0]?.name;
+    return html`<div class="list tracks">
+      ${page.items.map((it, i) => {
+        const artists = names(it.artists);
+        return html`<div class="row item track" data-s="p" data-i=${i} role="button" tabindex="0" aria-label=${it.name}>
+          <div class="num">${i + 1}<div class="fx ${this.fx.get(this.itemKey("p", it)) || ""}"></div></div>
+          ${this.renderMeta(it, artists && artists !== albumArtist ? artists : "")} ${this.renderMore()}
+        </div>`;
+      })}
+    </div>`;
   }
 
   private renderState(icon: string, title: string, text: string, extra: unknown = nothing) {
@@ -564,10 +685,10 @@ export class MaBrowserCard extends LitElement {
     </div>`;
   }
 
-  private renderRow(it: MaMediaItem, i: number) {
+  private renderRow(it: MaMediaItem, i: number, s = "r") {
     const type = this.typeOf(it);
-    return html`<div class="row item" data-s="r" data-i=${i} role="button" tabindex="0" aria-label=${it.name}>
-      ${this.renderArt(it, type, "r")} ${this.renderMeta(it, subtitle(it, type))} ${this.renderMore()}
+    return html`<div class="row item" data-s=${s} data-i=${i} role="button" tabindex="0" aria-label=${it.name}>
+      ${this.renderArt(it, type, s)} ${this.renderMeta(it, subtitle(it, type))} ${this.renderMore()}
     </div>`;
   }
 
@@ -705,11 +826,95 @@ export class MaBrowserCard extends LitElement {
     return (e.target as Element).closest?.<HTMLElement>(".item") ?? null;
   }
 
-  private lookup(el: HTMLElement): { it: MaMediaItem; s: string } | null {
+  private lookup(el: HTMLElement): Found | null {
     const i = Number(el.dataset.i);
     const s = el.dataset.s || "r";
-    const it = s === "r" ? this.items[i] : this.home?.[Number(s)]?.items[i];
-    return it ? { it, s } : null;
+    const it =
+      s === "r"
+        ? this.items[i]
+        : s === "p"
+          ? this.page?.items[i]
+          : s === "h"
+            ? this.page?.item
+            : this.home?.[Number(s)]?.items[i];
+    return it ? { it, s, i } : null;
+  }
+
+  /** Tapping an artist, album or playlist opens it; anything else plays. */
+  private activate(el: HTMLElement): void {
+    const found = this.lookup(el);
+    if (!found) return;
+    const type = this.typeOf(found.it);
+    if (EXPANDABLE.has(type)) this.openPage(found.it, type);
+    else this.play(found);
+  }
+
+  private get scroller(): HTMLElement | null {
+    const wrap = this.observed as HTMLElement | null;
+    return wrap?.classList.contains("is-full") ? wrap : null;
+  }
+
+  // Each page is a history entry, so the back button goes up one level instead of closing the browser
+  private openPage(item: MaMediaItem, type: MediaType): void {
+    const page: Page = { item, type, status: "loading", items: [], error: "", scrollBelow: this.scroller?.scrollTop ?? 0 };
+    this.pages = [...this.pages, page];
+    history.pushState({ ...(history.state || {}), [this.pageKey]: this.pages.length }, "");
+    haptic(this, "light");
+    this.updateComplete.then(() => this.scroller?.scrollTo({ top: 0 }));
+    this.loadPage(page);
+  }
+
+  private goBack = (): void => {
+    if (Number(history.state?.[this.pageKey]) === this.pages.length) history.back();
+    else this.trimPages(this.pages.length - 1);
+  };
+
+  private onPopState = (): void => {
+    this.trimPages(Number(history.state?.[this.pageKey]) || 0);
+  };
+
+  private trimPages(depth: number): void {
+    if (depth >= this.pages.length) return;
+    const top = this.pages[depth].scrollBelow;
+    this.pages = this.pages.slice(0, depth);
+    this.updateComplete.then(() => this.scroller?.scrollTo({ top }));
+  }
+
+  private async loadPage(page: Page, force = false): Promise<void> {
+    const c = this.config;
+    if (!c) return;
+    const cached = this.pageCache.get(page.item.uri);
+    if (cached && !force) {
+      Object.assign(page, { items: cached, status: "ok" });
+      this.requestUpdate();
+      return;
+    }
+    Object.assign(page, { status: "loading", error: "" });
+    this.requestUpdate();
+    try {
+      const items = await this.backend.library.browse(c.entity, { uri: page.item.uri, mediaType: page.type });
+      this.pageCache.set(page.item.uri, items);
+      Object.assign(page, { items, status: "ok" });
+    } catch (err) {
+      console.error("[ma-browser-card] browse", err);
+      Object.assign(page, { status: "error", error: errorMessage(err) });
+    }
+    this.requestUpdate();
+  }
+
+  /** The page's Play and Shuffle buttons: set the speaker's shuffle, then replace the queue. */
+  private async playPage(shuffle: boolean): Promise<void> {
+    const page = this.page;
+    if (!page) return;
+    const target = this.targetEntity;
+    if (!!this.hass?.states[target]?.attributes.shuffle !== shuffle) {
+      try {
+        await this.backend.player.setShuffle(target, shuffle);
+      } catch (err) {
+        console.warn("[ma-browser-card] shuffle_set", err);
+      }
+    }
+    this.play({ it: page.item, s: "h", i: 0 }, "replace");
   }
 
   private onPointerDown = (e: PointerEvent): void => {
@@ -723,7 +928,7 @@ export class MaBrowserCard extends LitElement {
       lp.fired = true;
       el.classList.remove("pressed");
       haptic(this, "medium");
-      this.openMenu(el);
+      this.openMenuFor(el);
     }, LONG_PRESS_MS);
   };
 
@@ -751,8 +956,8 @@ export class MaBrowserCard extends LitElement {
     }
     if ((e.target as Element).closest(".more")) {
       e.stopPropagation();
-      this.openMenu(el);
-    } else this.play(el);
+      this.openMenuFor(el);
+    } else this.activate(el);
   };
 
   private onItemKey = (e: KeyboardEvent): void => {
@@ -760,17 +965,21 @@ export class MaBrowserCard extends LitElement {
     if (!el) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      this.play(el);
+      this.activate(el);
     } else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
       e.preventDefault();
-      this.openMenu(el);
+      this.openMenuFor(el);
     }
   };
 
-  private async openMenu(el: HTMLElement): Promise<void> {
+  private openMenuFor(el: HTMLElement): void {
     const found = this.lookup(el);
+    if (found) this.openMenu(found);
+  }
+
+  private async openMenu(found: Found): Promise<void> {
     const sheet = this.sheet;
-    if (!found || !sheet) return;
+    if (!sheet) return;
     const { it } = found;
     const type = this.typeOf(it);
     const info = TYPES[type];
@@ -788,8 +997,8 @@ export class MaBrowserCard extends LitElement {
       ],
       cancelLabel: t("common.cancel"),
     });
-    if (key === "next" || key === "add") this.play(el, key);
-    else if (key === "now") this.play(el);
+    if (key === "next" || key === "add") this.play(found, key);
+    else if (key === "now") this.play(found);
   }
 
   private setFx(key: string, fx: Fx | null, clearAfter?: number): void {
@@ -802,18 +1011,24 @@ export class MaBrowserCard extends LitElement {
       }, clearAfter);
   }
 
-  private async play(el: HTMLElement, enqueueOverride?: Enqueue): Promise<void> {
-    const found = this.lookup(el);
-    if (!found?.it.uri) return;
-    const { it, s } = found;
+  private async play(found: Found, enqueueOverride?: Enqueue): Promise<void> {
+    const { it, s, i } = found;
+    if (!it.uri) return;
     const type = this.typeOf(it);
-    const enqueue = enqueueOverride || TYPES[type].enqueue;
+    let enqueue = enqueueOverride || TYPES[type].enqueue;
+    let uri: string | string[] = it.uri;
+    // A song tapped inside an album or playlist plays the rest of it too
+    const page = this.page;
+    if (s === "p" && !enqueueOverride && type === "track" && page) {
+      uri = page.items.slice(i).map((x) => x.uri);
+      enqueue = "replace";
+    }
     const key = this.itemKey(s, it);
     const { t } = this;
     haptic(this, "light");
     this.setFx(key, "busy");
     try {
-      await this.backend.library.play(this.targetEntity, { uri: it.uri, mediaType: type }, enqueue);
+      await this.backend.library.play(this.targetEntity, { uri, mediaType: type }, enqueue);
       this.setFx(key, "done", 1400);
       const msg =
         enqueue === "next"

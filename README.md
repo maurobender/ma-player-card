@@ -156,10 +156,14 @@ speaker_selector: true   # button to choose which speaker plays
 - **Tap the button** to open the browser full screen. With an empty search it shows your recently played items and favorites. Close it with ✕, *Esc* or Android's *back* button.
 - **Type** in the search field: it searches on its own after 350 ms, or when you press *Enter*. The media type tabs (songs, artists, …) appear once there is something to search.
 - **Songs** are shown as a list (1–3 columns depending on the width); everything else as an artwork grid.
-- **Tap** a result to play it right away on the speaker.
+- **Tap a song or a radio** to play it right away on the speaker.
   - Songs → `enqueue: play` (plays now, keeps the queue).
-  - Artists, albums, playlists and radio → `enqueue: replace` (replaces the queue).
-- **Long-press** (or tap **⋯**) for *Play now*, *Play next* (`next`) and *Add to queue* (`add`).
+  - Radio → `enqueue: replace` (replaces the queue).
+- **Tap an artist, album or playlist** to open it: an album or playlist lists its songs, an artist lists its albums.
+  - *Play* and *Shuffle* replace the queue with the whole item, turning the speaker's shuffle off or on first.
+  - Tapping a song plays it and the rest of the album or playlist after it.
+  - *Back* (the button at the top or Android's *back*) goes up one level.
+- **Long-press** (or tap **⋯**) for *Play now*, *Play next* (`next`) and *Add to queue* (`add`), without opening the item.
   Radio only has *Play now*.
 
 ### Home view (`home`)
@@ -277,9 +281,10 @@ Music Assistant actions the cards use:
 |---|---|---|
 | `music_assistant.search` | Search | `config_entry_id`*, `name`*, `media_type` (`track`, `artist`, `album`, `playlist`, `radio`…), `limit` (default 5), `library_only` |
 | `music_assistant.get_library` | Home view: recently played and favorites | `config_entry_id`*, `media_type`*, `favorite`, `order_by`, `limit` (default 25) |
-| `music_assistant.play_media` | Play | target `entity_id`*, `media_id`* (URI), `media_type`, `enqueue` (`play`, `replace`, `next`, `replace_next`, `add`) |
+| `music_assistant.play_media` | Play | target `entity_id`*, `media_id`* (URI, or a list of them), `media_type`, `enqueue` (`play`, `replace`, `next`, `replace_next`, `add`) |
+| `media_player/browse_media` (WebSocket) | Artist, album and playlist pages | `entity_id`*, `media_content_id`* (URI), `media_content_type`* |
 | `music_assistant.get_queue` | Queue (read-only) and favorite state | target `entity_id`*, `limit`, `offset` |
-| `media_player.*` | Controls | `media_play_pause`, `media_previous_track`, `media_next_track`, `media_seek`, `volume_set`, `shuffle_set`, `repeat_set` |
+| `media_player.*` | Controls | `media_play_pause`, `media_previous_track`, `media_next_track`, `media_seek`, `volume_set`, `volume_mute`, `shuffle_set`, `repeat_set` |
 | `button.press` | ♥ Favorite | The *Favorite current song* button Music Assistant adds to each player |
 | `mass_queue.*` (optional) | Edit the queue, remove a favorite | `get_queue_items`, `move_queue_item_up/down/next`, `remove_queue_item`, `play_queue_item`, `unfavorite_current_item` (an `entity` field, not a target) |
 

@@ -3,6 +3,27 @@ import type { HassGetter } from "../../models/hass.js";
 import { callWithResponse } from "../call.js";
 import type { Enqueue, LibraryApi, LibraryQuery, MaMediaItem, MediaType, SearchOptions } from "../types.js";
 
+interface BrowseMedia {
+  title: string;
+  media_class: string;
+  media_content_id: string;
+  thumbnail?: string | null;
+  children?: BrowseMedia[];
+}
+
+/** Music Assistant titles its tracks and albums "<first artist> - <name>". */
+export function fromBrowseMedia(b: BrowseMedia): MaMediaItem {
+  const sep = b.title.indexOf(" - ");
+  const artist = sep > 0 ? b.title.slice(0, sep) : "";
+  return {
+    uri: b.media_content_id,
+    name: sep > 0 ? b.title.slice(sep + 3) : b.title,
+    media_type: b.media_class in TYPES ? (b.media_class as MediaType) : undefined,
+    image: b.thumbnail || null,
+    artists: artist ? [{ name: artist }] : [],
+  };
+}
+
 // Shared by every card on the page.
 const entryIds = new Map<string, Promise<string>>();
 
@@ -36,7 +57,18 @@ export class NativeLibrary implements LibraryApi {
     return data.items || [];
   }
 
-  async play(entity: string, item: { uri: string; mediaType: MediaType }, enqueue: Enqueue): Promise<void> {
+  // Home Assistant's media browser is the only way the official integration lists what's inside an item
+  async browse(entity: string, { uri, mediaType }: { uri: string; mediaType: MediaType }): Promise<MaMediaItem[]> {
+    const res = await this.hass().callWS<BrowseMedia>({
+      type: "media_player/browse_media",
+      entity_id: entity,
+      media_content_id: uri,
+      media_content_type: mediaType,
+    });
+    return (res.children || []).map(fromBrowseMedia);
+  }
+
+  async play(entity: string, item: { uri: string | string[]; mediaType: MediaType }, enqueue: Enqueue): Promise<void> {
     await this.hass().callWS({
       type: "call_service",
       domain: "music_assistant",

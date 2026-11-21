@@ -4,13 +4,19 @@
  *
  * Opening pushes a history entry; closing by any means (button, Escape, backdrop) pops it.
  * Dialogs stack: each marks its own key in history.state and closes only when back removes it.
+ * Entries pushed on top while it is open (sub-pages that keep the key) are counted by
+ * `extraEntries` so closing pops them as well.
  */
 export class OverlayHistory {
   readonly dialog: HTMLDialogElement;
   private readonly key: string;
   private pushed = false;
 
-  constructor(dialog: HTMLDialogElement, id: string) {
+  constructor(
+    dialog: HTMLDialogElement,
+    id: string,
+    private readonly extraEntries: () => number = () => 0,
+  ) {
     this.dialog = dialog;
     this.key = `ma:${id}`;
     dialog.addEventListener("close", this.onClose);
@@ -37,7 +43,7 @@ export class OverlayHistory {
     window.removeEventListener("popstate", this.onPopState);
     if (this.pushed) {
       this.pushed = false;
-      history.back();
+      history.go(-1 - this.extraEntries());
     }
   };
 

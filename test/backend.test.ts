@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BackendHolder, createBackend, resolveBackendName } from "../src/backend/backend.js";
 import { moveSteps } from "../src/backend/mass-queue/queue.js";
-import { NativeLibrary } from "../src/backend/native/library.js";
+import { fromBrowseMedia, NativeLibrary } from "../src/backend/native/library.js";
 import { UnsupportedError } from "../src/backend/types.js";
 import { fakeHass } from "./helpers/fake-hass.js";
 
@@ -245,5 +245,34 @@ describe("player", () => {
       ["repeat_set", { entity_id: ENT, repeat: "all" }],
       ["volume_mute", { entity_id: ENT, is_volume_muted: true }],
     ]);
+  });
+});
+
+describe("fromBrowseMedia", () => {
+  it("splits the artist off Music Assistant's titles", () => {
+    expect(
+      fromBrowseMedia({
+        title: "Queen - Love of My Life - Live",
+        media_class: "track",
+        media_content_id: "library://track/1",
+        thumbnail: "t",
+      }),
+    ).toEqual({
+      uri: "library://track/1",
+      name: "Love of My Life - Live",
+      media_type: "track",
+      image: "t",
+      artists: [{ name: "Queen" }],
+    });
+  });
+
+  it("keeps titles without an artist and drops unknown classes", () => {
+    expect(fromBrowseMedia({ title: "Mix", media_class: "directory", media_content_id: "x" })).toEqual({
+      uri: "x",
+      name: "Mix",
+      media_type: undefined,
+      image: null,
+      artists: [],
+    });
   });
 });
