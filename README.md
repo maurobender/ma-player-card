@@ -1,17 +1,17 @@
 # ma-player-card
 
 Reproductor y buscador de **Music Assistant** para Home Assistant, con estilo inspirado en Apple Music.
-Un solo archivo (`ma-player-card.js`) con dos tarjetas:
+Un solo archivo (`dist/ma-player-card.js`) con dos tarjetas:
 
 | Tarjeta | Qué es |
 |---|---|
 | `custom:ma-player-card` | Lo que está sonando + **Reproduciendo** a pantalla completa: controles, progreso, volumen, aleatorio/repetir, favorito, **cola**, **letra sincronizada** y el buscador integrado (🔍). |
 | `custom:ma-browser-card` | Solo el buscador: botón que abre la búsqueda a pantalla completa, con recientes y favoritos. |
 
-- Sin compilación ni dependencias.
+- Para instalarlo no hace falta compilar nada: `dist/ma-player-card.js` ya viene listo y no tiene dependencias.
+  El código fuente está en `src/` (ver *Desarrollo*).
 - Funciona solo con la integración **oficial** de Music Assistant del core de HA.
   Si además tenés instalada [`mass_queue`](https://github.com/droans/mass_queue) (HACS), la cola se puede editar (ver *Backends*).
-- `ma-debug-card.js` es una herramienta de diagnóstico (no hace falta instalarla).
 
 ## Acciones de Music Assistant que usa (verificadas en la doc oficial)
 
@@ -30,7 +30,7 @@ Un solo archivo (`ma-player-card.js`) con dos tarjetas:
 
 ## Instalación
 
-1. Copiá el archivo a `/config/www/` (por ejemplo con la extensión *File editor* o *Samba*).
+1. Copiá `dist/ma-player-card.js` a `/config/www/` (por ejemplo con la extensión *File editor* o *Samba*).
 2. **Ajustes → Paneles de control → ⋮ → Recursos → Agregar recurso**
    - URL: `/local/ma-player-card.js?v=1`
    - Tipo: **Módulo JavaScript**
@@ -42,7 +42,7 @@ Un solo archivo (`ma-player-card.js`) con dos tarjetas:
 
 El archivo cambió de nombre: ahora todo está en `ma-player-card.js` (incluido el buscador).
 
-1. Copiá `ma-player-card.js` a `/config/www/`.
+1. Copiá `dist/ma-player-card.js` a `/config/www/`.
 2. En **Recursos**, **editá** el recurso viejo `/local/ma-browser-card.js?v=…` y cambiale la URL a `/local/ma-player-card.js?v=1`
    (o borralo y agregá el nuevo). **No dejes los dos**: se cargaría la versión vieja del buscador.
 3. Tus tarjetas `custom:ma-browser-card` siguen funcionando igual, y el parlante elegido se conserva.
@@ -54,18 +54,7 @@ HA y la Companion app cachean los recursos agresivamente. Cada vez que reemplace
 
 1. Editá el recurso y subí el número: `/local/ma-player-card.js?v=2`, `?v=3`, …
 2. Recargá la página (Ctrl+Shift+R en escritorio).
-3. Comprobá en la consola (F12) el banner con la versión, p. ej. `MA-PLAYER-CARD v0.4.0`.
-
-## Diagnóstico (ma-debug-card)
-
-```yaml
-type: custom:ma-debug-card
-entity: media_player.home_assistant_voice_0a7e7c_media_player_2
-query: Queen
-# config_entry_id: 01J...   # solo si la detección automática falla
-```
-
-Pulsá **Buscar**. La tarjeta muestra: un log de diagnóstico, las portadas (✅ si cargan, ❌ si no) y el JSON crudo.
+3. Comprobá en la consola (F12) el banner con la versión, p. ej. `MA-PLAYER-CARD v0.5.1`.
 
 ## Reproductor (`ma-player-card`)
 
@@ -209,3 +198,41 @@ pueden tener parlantes distintos). Si el parlante elegido desaparece, vuelve al 
 
 Con `ma-player-card` no hace falta una tarjeta de búsqueda aparte: el 🔍 abre el mismo buscador.
 `ma-browser-card` sigue siendo útil si querés solo el botón de búsqueda en otro panel.
+
+## Desarrollo
+
+Requiere Node.js 20 o posterior.
+
+```bash
+npm install
+```
+
+| Comando | Qué hace |
+|---|---|
+| `npm run build` | Compila `src/` en `dist/ma-player-card.js` (lo que se copia a HA) |
+| `npm run dev` | Recompila al guardar y sirve los mocks en <http://localhost:8766/player.html> y <http://localhost:8766/browser.html> |
+| `npm run lint` | Revisa el código con Biome |
+| `npm run format` | Formatea el código con Biome |
+| `npm run typecheck` | Revisa los tipos con TypeScript |
+| `npm run check` | Lint + tipos + build |
+
+La versión sale de `package.json`: al publicar una versión nueva, subila ahí y corré `npm run build`.
+`dist/` se guarda en git para que instalar sea solo copiar un archivo.
+
+Los mocks de `dev/` simulan `hass` en el navegador. En `player.html`, `?mq=1` simula la integración `mass_queue`.
+
+```
+src/
+  main.js                 registra las cards (punto de entrada)
+  version.js              versión (la inyecta el build)
+  constants.js            tipos de medio, estantes por defecto, etc.
+  cards/
+    browser-card/         ma-browser-card y sus estilos
+    player-card/          ma-player-card y sus estilos
+  backend/                acceso a Music Assistant: native.js, mass-queue.js
+  components/             UI compartida (slider)
+  services/               parlante elegido, letras (LRCLIB y parser LRC)
+  utils/                  escape de HTML, formato, ids
+dev/                      mocks para probar en el navegador
+scripts/build.mjs         build con esbuild
+```

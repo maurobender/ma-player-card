@@ -1,0 +1,89 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html { --primary-color:#03a9f4; --secondary-background-color:#eef1f5; --primary-text-color:#1a1a1a; --primary-background-color:#f2f2f7;
+    --secondary-text-color:#666; --card-background-color:#fff; --divider-color:#ddd; --text-primary-color:#fff; }
+  body { background:#f4f6fa; font-family: sans-serif; margin:0; padding:16px; }
+  ha-card { display:block; background:var(--card-background-color); border-radius:32px; box-shadow: 0 2px 6px rgba(0,0,0,.08) }
+</style></head>
+<body>
+<div id="host" style="max-width:700px"></div>
+<script>
+  customElements.define("ha-card", class extends HTMLElement {});
+  // ha-icon simulado: muestra el nombre corto del ícono
+  customElements.define("ha-icon", class extends HTMLElement {
+    static get observedAttributes() { return ["icon"]; }
+    connectedCallback() { this.r(); } attributeChangedCallback() { this.r(); }
+    r() { const m = { play:"▶", pause:"⏸", "skip-previous":"⏮", "skip-next":"⏭", magnify:"🔍", "chevron-down":"⌄", "heart-outline":"♡", heart:"♥",
+      "shuffle-variant":"🔀", repeat:"🔁", "repeat-once":"🔂", "repeat-off":"↻", "volume-low":"🔈", "volume-high":"🔊", "message-text-outline":"💬",
+      "playlist-music":"☰", speaker:"🔈", music:"♪", close:"✕" }; const k=(this.getAttribute("icon")||"").replace("mdi:",""); this.textContent = m[k] || "•";
+      this.style.cssText="display:inline-grid;place-items:center;font-size:calc(var(--mdc-icon-size,24px)*.8);width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px);line-height:1"; }
+  });
+  window.calls = [];
+  const MQ = new URLSearchParams(location.search).has("mq");
+  const mkItem = (i) => ({ id: "q" + i, name: "Canción " + i, artist: "Artista " + i, img: `https://picsum.photos/seed/q${i}/200`, fav: false });
+  window.Q = Array.from({ length: 30 }, (_, i) => mkItem(i));
+  Q[4] = { id: "q4", name: "Bohemian Rhapsody", artist: "Queen", img: "https://picsum.photos/seed/queen/200", fav: false };
+  window.CUR = 4;
+  const now = () => new Date().toISOString();
+  const hass = {
+    states: {
+      "media_player.salon": { state: "playing", attributes: { friendly_name: "Salón", media_title: "BAILAR O MORIR", media_artist: "BOM, Miranda!, Lali",
+        media_album_name: "BAILAR O MORIR", media_duration: 154, media_position: 20, media_position_updated_at: now(),
+        entity_picture: "https://picsum.photos/seed/queen/600", volume_level: 0.4, shuffle: false, repeat: "off" } },
+      "media_player.cocina": { state: "idle", attributes: { friendly_name: "Cocina" } },
+    },
+    services: MQ ? { mass_queue: { get_queue_items: {} } } : {},
+    entities: {
+      "media_player.salon": { entity_id: "media_player.salon", platform: "music_assistant", device_id: "d1" },
+      "button.salon_favorite_current_song": { entity_id: "button.salon_favorite_current_song", platform: "music_assistant", device_id: "d1", translation_key: "favorite_now_playing" },
+      "media_player.cocina": { entity_id: "media_player.cocina", platform: "music_assistant", device_id: "d2" },
+    },
+    async callService(domain, service, data) {
+      calls.push({ domain, service, data });
+      if (domain === "mass_queue") {
+        await new Promise((r) => setTimeout(r, 150));
+        const k = Q.findIndex((x) => x.id === data.queue_item_id);
+        if (service === "remove_queue_item") Q.splice(k, 1);
+        if (service === "move_queue_item_up" && k > CUR + 1) [Q[k - 1], Q[k]] = [Q[k], Q[k - 1]];
+        if (service === "move_queue_item_down" && k < Q.length - 1) [Q[k + 1], Q[k]] = [Q[k], Q[k + 1]];
+        if (service === "move_queue_item_next") { const [x] = Q.splice(k, 1); Q.splice(CUR + 1, 0, x); }
+        if (service === "play_queue_item") { CUR = k; hass.states["media_player.salon"].attributes.media_title = Q[k].name; }
+        if (service === "unfavorite_current_item") Q[CUR].fav = false;
+        push(); return;
+      }
+      if (domain === "button") Q[CUR].fav = true;
+      const st = hass.states[data.entity_id];
+      if (service === "media_play_pause") st.state = st.state === "playing" ? "paused" : "playing";
+      if (service === "media_seek" && !window.noSeekUpdate) { st.attributes.media_position = data.seek_position; st.attributes.media_position_updated_at = now(); }
+      if (service === "shuffle_set") st.attributes.shuffle = data.shuffle;
+      if (service === "repeat_set") st.attributes.repeat = data.repeat;
+      if (service === "volume_set") st.attributes.volume_level = data.volume_level;
+      push();
+    },
+    async callWS(msg) {
+      calls.push(msg);
+      await new Promise((r) => setTimeout(r, 200));
+      const nat = (x) => ({ queue_item_id: x.id, name: x.name, duration: 200, media_item: { name: x.name, image: x.img, artists: [{ name: x.artist }], favorite: x.fav } });
+      if (msg.service === "get_queue") {
+        if (window.oldHA && ("offset" in msg.service_data || "limit" in msg.service_data)) throw { code: "invalid_format", message: "extra keys not allowed @ data['offset']. Got 5. not a valid option" };
+        const base = { queue_id: "salon", active: true, items: Q.length, current_index: CUR, elapsed_time: 20, current_item: nat(Q[CUR]), next_item: Q[CUR + 1] ? nat(Q[CUR + 1]) : null };
+        if (msg.service_data.limit) base.queue_items = Q.slice(msg.service_data.offset, msg.service_data.offset + msg.service_data.limit).map(nat);
+        return { response: { [msg.target.entity_id]: base } };
+      }
+      if (msg.domain === "mass_queue" && msg.service === "get_queue_items") {
+        const d = msg.service_data;
+        return { response: { [d.entity]: Q.slice(d.offset, d.offset + d.limit).map((x) => ({ queue_item_id: x.id, media_title: x.name, media_artist: x.artist, media_album_name: "", media_image: x.img, favorite: x.fav })) } };
+      }
+      if (msg.type === "config/entity_registry/get") return { platform: "music_assistant", config_entry_id: "XYZ" };
+      if (msg.service === "get_library") return { response: { items: [] } };
+      return {};
+    },
+  };
+  const card = document.createElement("ma-player-card");
+  document.getElementById("host").appendChild(card);
+  function push() { card.hass = { ...hass, states: { ...hass.states } }; }
+  window.push = push;
+  import("./build/ma-player-card.js").then(() => { card.setConfig({ entity: "media_player.salon", debug: true }); push(); });
+</script>
+</body></html>
