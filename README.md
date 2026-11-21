@@ -214,7 +214,8 @@ npm install
 | `npm run lint` | Revisa el código con Biome |
 | `npm run format` | Formatea el código con Biome |
 | `npm run typecheck` | Revisa los tipos con TypeScript |
-| `npm run check` | Lint + tipos + build |
+| `npm test` | Corre los tests (Vitest) |
+| `npm run check` | Lint + tipos + tests + build |
 
 La versión sale de `package.json`: al publicar una versión nueva, subila ahí y corré `npm run build`.
 `dist/` se guarda en git para que instalar sea solo copiar un archivo.
@@ -223,16 +224,29 @@ Los mocks de `dev/` simulan `hass` en el navegador. En `player.html`, `?mq=1` si
 
 ```
 src/
-  main.js                 registra las cards (punto de entrada)
-  version.js              versión (la inyecta el build)
-  constants.js            tipos de medio, estantes por defecto, etc.
+  main.ts                 registra las cards (punto de entrada)
+  version.ts              versión (la inyecta el build)
+  constants.ts            tipos de medio, estantes por defecto, etc.
+  models/hass.ts          tipos del objeto hass y las entidades
   cards/
     browser-card/         ma-browser-card y sus estilos
     player-card/          ma-player-card y sus estilos
-  backend/                acceso a Music Assistant: native.js, mass-queue.js
+  backend/                única forma de hablar con Music Assistant
+    types.ts              contrato: biblioteca, cola, favoritos, reproductor
+    backend.ts            elige native o mass_queue y arma el backend
+    native/               integración oficial de HA
+    mass-queue/           cola y favoritos con la integración mass_queue
   components/             UI compartida (slider)
-  services/               parlante elegido, letras (LRCLIB y parser LRC)
+  services/
+    playback-clock.ts     posición de la canción (incluye el parche del bug #7194)
+    lyrics/               letras (LRCLIB y parser LRC)
+    speaker-target.ts     parlante elegido
   utils/                  escape de HTML, formato, ids
+test/                     tests (Vitest)
 dev/                      mocks para probar en el navegador
 scripts/build.mjs         build con esbuild
 ```
+
+Las cards no llaman a `hass` directamente: todo pasa por `backend/`. La biblioteca y los controles
+del reproductor usan siempre la integración oficial; la cola y los favoritos usan `mass_queue` si
+está instalada (o si se fuerza con `backend:`).

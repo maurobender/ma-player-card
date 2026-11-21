@@ -1,9 +1,9 @@
-import { MassQueueBackend } from "../../backend/mass-queue.js";
-import { NativeBackend } from "../../backend/native.js";
+import { BackendHolder } from "../../backend/backend.js";
 import { bindSlider, setSlider } from "../../components/slider.js";
 import { APPLE_RED } from "../../constants.js";
 import { parseLrc } from "../../services/lyrics/lrc-parser.js";
 import { fetchLyrics, firstArtist } from "../../services/lyrics/lrclib.js";
+import { PlaybackClock } from "../../services/playback-clock.js";
 import { TARGET_EVENT, Target } from "../../services/speaker-target.js";
 import { fmtTime } from "../../utils/format.js";
 import { esc } from "../../utils/html.js";
@@ -16,11 +16,7 @@ import { PLAYER_STYLES } from "./player-card.styles.js";
 /* ========================================================================
  * ma-player-card — reproductor (mini en el panel + "Reproduciendo" a pantalla completa)
  *
- * Usa acciones nativas de HA:
- *   media_player.media_play_pause / media_previous_track / media_next_track
- *   media_player.media_seek / volume_set / shuffle_set / repeat_set
- *   music_assistant.get_queue   (cola, solo lectura)
- *   button.press                (botón "Favorito de la canción actual" de Music Assistant)
+ * Todo lo que sale hacia HA / Music Assistant pasa por el backend (src/backend/).
  * Letras sincronizadas: LRCLIB (https://lrclib.net), gratuito y sin clave.
  * ====================================================================== */
 
@@ -38,6 +34,8 @@ export class MaPlayerCard extends HTMLElement {
     this._queueStatus = "idle";
     this._lyrics = null;
     this._lyricIdx = -1;
+    this._backends = new BackendHolder(() => this._hass);
+    this._clock = new PlaybackClock((msg) => this._dbg(msg));
     this._onPopState = this._onPopState.bind(this);
     this._onTargetEvent = (e) => {
       if (this._config && e.detail.entity === this._config.entity) {
@@ -125,62 +123,19 @@ export class MaPlayerCard extends HTMLElement {
     return (st && Number(st.attributes.media_duration)) || 0;
   }
 
-  /*
-   * Reloj de reproducción propio. HA informa la posición como un "ancla":
-   * media_position (en segundos enteros) + el momento en que se midió (media_position_updated_at,
-   * con el reloj del servidor de Music Assistant). Corregimos tres cosas:
-   *   - el desfase entre el reloj del servidor y el de la tablet (_skew),
-   *   - el redondeo a segundos enteros (+0,5 s de media),
-   *   - que con algunos parlantes (p. ej. Voice PE), tras adelantar o reanudar, Music Assistant
-   *     reinicia el stream y cuenta el tiempo DESDE ESE REINICIO (manda pos=0 aunque la canción siga
-   *     en el segundo 90). Si eso pasa justo después de una acción nuestra, calculamos la diferencia
-   *     (_offset) y se la sumamos a todo lo que llegue hasta que cambie la canción.
-   */
+  // Reloj de reproducción: ver src/services/playback-clock.ts
   _syncClock(st) {
     const a = (st && st.attributes) || {};
     const key = `${this._entity()}|${a.media_title || ""}|${a.media_artist || ""}`;
-    if (key !== this._clockKey) {
-      // otra canción u otro parlante: empezamos de cero
-      this._clockKey = key;
-      this._anchor = null;
-      this._lastUpd = undefined;
-      this._offset = 0;
-      this._expect = null;
-    }
-    if (!st) return;
-    const now = Date.now();
-    const playing = st.state === "playing";
-    const upd = a.media_position_updated_at || "";
-    if (upd !== this._lastUpd || !this._anchor) {
-      const live = this._lastUpd !== undefined && upd !== this._lastUpd; // llegó mientras mirábamos
-      this._lastUpd = upd;
-      const updMs = Date.parse(upd);
-      if (live && updMs) {
-        const obs = now - updMs; // desfase de reloj + latencia: nos quedamos con el menor
-        this._skew = this._skew == null ? obs : Math.min(this._skew, obs);
-      }
-      let ha = Number(a.media_position) || 0;
-      if (playing && updMs) ha += 0.5 + Math.max(0, (now - (this._skew || 0) - updMs) / 1000);
-      let pos = ha + (this._offset || 0);
-      let note = "";
-      // Hasta 15 s después de adelantar/pausar/reanudar desde la tarjeta sabemos dónde debería estar
-      if (this._expect && now - this._expect.at < 15000 && this._anchor) {
-        const mine = this._position(st);
-        if (Math.abs(pos - mine) > 3) {
-          this._offset = mine - ha;
-          pos = mine;
-          note = ` · MA reinició el conteo, compenso ${this._offset.toFixed(1)}s`;
+    const report = st
+      ? {
+          state: st.state,
+          playing: st.state === "playing",
+          position: a.media_position,
+          updatedAt: a.media_position_updated_at || "",
         }
-      }
-      this._anchor = { pos, at: now, playing };
-      this._dbg(
-        `HA ${st.state} pos=${a.media_position} upd=${upd ? upd.slice(11, 23) : "-"} ` +
-          `(${updMs ? ((now - updMs) / 1000).toFixed(1) : "?"}s) → ancla ${pos.toFixed(1)}${note}`,
-      );
-    } else if (this._anchor.playing !== playing) {
-      // pausa/reanudación sin ancla nueva: re-anclamos donde estábamos
-      this._anchor = { pos: this._position(st), at: now, playing };
-    }
+      : null;
+    this._clock.sync(key, report, this._duration(st));
   }
 
   // ---------- Diagnóstico (debug: true) ----------
@@ -198,17 +153,8 @@ export class MaPlayerCard extends HTMLElement {
     this._dbgBusy = true;
     const ent = this._entity();
     try {
-      const r = await this._hass.callWS({
-        type: "call_service",
-        domain: "music_assistant",
-        service: "get_queue",
-        target: { entity_id: ent },
-        service_data: {},
-        return_response: true,
-      });
-      const d = (r && r.response) || {};
-      const q = d[ent] || d;
-      this._dbgQueue = { elapsed: q.elapsed_time, at: Date.now() };
+      const info = await this._backend().queue.info(ent);
+      this._dbgQueue = { elapsed: info.elapsed, at: Date.now() };
     } catch (err) {
       this._dbgQueue = { error: (err && err.message) || String(err), at: Date.now() };
     }
@@ -223,7 +169,7 @@ export class MaPlayerCard extends HTMLElement {
       this._dbgPollQueue();
     }
     const a = (st && st.attributes) || {};
-    const an = this._anchor;
+    const { anchor: an, skew, offset } = this._clock.debug;
     const q = this._dbgQueue;
     const ago = (t) => `${((Date.now() - t) / 1000).toFixed(1)}s`;
     el.textContent = [
@@ -231,8 +177,8 @@ export class MaPlayerCard extends HTMLElement {
       `HA media_position: ${a.media_position}  duración: ${a.media_duration}`,
       `HA updated_at: ${a.media_position_updated_at || "-"}`,
       `reloj tablet: ${new Date().toISOString()}`,
-      `desfase reloj (skew): ${this._skew == null ? "sin medir" : `${this._skew} ms`}   compensación MA: ${(this._offset || 0).toFixed(1)}s`,
-      `ancla: ${an ? `${an.pos.toFixed(1)}s hace ${ago(an.at)} ${an.playing ? "▶" : "⏸"}${an.local ? " (local)" : ""}` : "-"}`,
+      `desfase reloj (skew): ${skew == null ? "sin medir" : `${skew} ms`}   compensación MA: ${offset.toFixed(1)}s`,
+      `ancla: ${an ? `${an.pos.toFixed(1)}s hace ${ago(an.at)} ${an.playing ? "▶" : "⏸"}` : "-"}`,
       `POSICIÓN TARJETA: ${pos.toFixed(1)}s`,
       `cola MA elapsed_time: ${q ? (q.error ? `error ${q.error}` : `${q.elapsed}s (hace ${ago(q.at)})`) : "…"}`,
       "— eventos —",
@@ -241,18 +187,11 @@ export class MaPlayerCard extends HTMLElement {
   }
 
   _setLocalPosition(pos, playing) {
-    this._dbg(`local ${playing ? "▶" : "⏸"} ancla ${pos.toFixed(1)}`);
-    this._expect = { at: Date.now() };
-    this._anchor = { pos, at: Date.now(), playing };
+    this._clock.setLocal(pos, playing);
   }
 
   _position(st) {
-    const an = this._anchor;
-    if (!st || !an) return 0;
-    let p = an.pos + (an.playing ? (Date.now() - an.at) / 1000 : 0);
-    const d = this._duration(st);
-    if (d) p = Math.min(p, d);
-    return Math.max(0, p);
+    return st ? this._clock.position(this._duration(st)) : 0;
   }
 
   _picture(st) {
@@ -394,12 +333,12 @@ export class MaPlayerCard extends HTMLElement {
         if (r === null || !d) return this._tick();
         const pos = r * d;
         this._setLocalPosition(pos, this._isPlaying(this._state()));
-        this._call("media_seek", { seek_position: Math.round(pos * 10) / 10 });
+        this._run("media_seek", (p, e) => p.seek(e, Math.round(pos * 10) / 10));
         this._tick();
       },
     });
     let volTimer = null;
-    const sendVol = (r) => this._call("volume_set", { volume_level: Math.round(r * 100) / 100 });
+    const sendVol = (r) => this._run("volume_set", (p, e) => p.setVolume(e, Math.round(r * 100) / 100));
     bindSlider(this._els.vol, {
       onInput: (r) => {
         this._vol = { v: r, at: Date.now() };
@@ -427,7 +366,7 @@ export class MaPlayerCard extends HTMLElement {
       const pos = Number(line.dataset.t);
       this._setLocalPosition(pos, this._isPlaying(this._state()));
       this._lyUserAt = 0;
-      this._call("media_seek", { seek_position: pos });
+      this._run("media_seek", (p, e) => p.seek(e, pos));
       this._haptic("light");
     });
     const userScroll = () => (this._lyUserAt = Date.now());
@@ -584,10 +523,9 @@ export class MaPlayerCard extends HTMLElement {
 
   // ---------- Comandos ----------
 
-  _call(service, data = {}) {
-    return this._hass
-      .callService("media_player", service, { entity_id: this._entity(), ...data })
-      .catch((err) => console.error(`[ma-player-card] ${service}`, err));
+  /** Ejecuta un comando del reproductor sobre el parlante actual; los errores solo se registran. */
+  _run(label, fn) {
+    return fn(this._backend().player, this._entity()).catch((err) => console.error(`[ma-player-card] ${label}`, err));
   }
 
   _cmd(cmd) {
@@ -601,17 +539,17 @@ export class MaPlayerCard extends HTMLElement {
         this._setLocalPosition(this._position(st), this._optPlaying);
         this._sig = "";
         this._update();
-        return this._call("media_play_pause");
+        return this._run("media_play_pause", (p, e) => p.playPause(e));
       case "prev":
-        return this._call("media_previous_track");
+        return this._run("media_previous_track", (p, e) => p.previous(e));
       case "next":
-        return this._call("media_next_track");
+        return this._run("media_next_track", (p, e) => p.next(e));
       case "shuffle":
-        return this._call("shuffle_set", { shuffle: !a.shuffle });
+        return this._run("shuffle_set", (p, e) => p.setShuffle(e, !a.shuffle));
       case "repeat": {
         const order = ["off", "all", "one"];
         const next = order[(order.indexOf(a.repeat || "off") + 1) % order.length];
-        return this._call("repeat_set", { repeat: next });
+        return this._run("repeat_set", (p, e) => p.setRepeat(e, next));
       }
       case "search":
         return this._browser.open();
@@ -624,33 +562,18 @@ export class MaPlayerCard extends HTMLElement {
 
   /** backend: auto (mass_queue si está instalado) | native | mass_queue */
   _backend() {
-    const want = this._config.backend || "auto";
-    const hasMq = !!(this._hass && this._hass.services && this._hass.services.mass_queue);
-    const name = want === "mass_queue" || (want === "auto" && hasMq) ? "mass_queue" : "native";
-    if (!this._be || this._be.name !== name) {
-      this._be = name === "mass_queue" ? new MassQueueBackend(this) : new NativeBackend(this);
-    }
-    return this._be;
+    return this._backends.get({
+      mode: this._config.backend || "auto",
+      entity: this._config.entity,
+      configEntryId: this._config.config_entry_id,
+    });
   }
 
   // ---------- Favorito ----------
 
-  _favButton(ent = this._entity()) {
-    const ents = (this._hass && this._hass.entities) || {};
-    const me = ents[ent];
-    if (!me || !me.device_id) return null;
-    const btn = Object.values(ents).find(
-      (x) =>
-        x.device_id === me.device_id &&
-        x.entity_id.startsWith("button.") &&
-        (x.translation_key === "favorite_now_playing" || /favorit/.test(x.entity_id)),
-    );
-    return btn ? btn.entity_id : null;
-  }
-
   _renderFav() {
     const st = this._state();
-    const show = !!(this._backend().canFavorite(this._entity()) && st && st.attributes.media_title);
+    const show = !!(this._backend().favorites.canFavorite(this._entity()) && st && st.attributes.media_title);
     this._els.fav.hidden = !show;
     this._els.fav.classList.toggle("on", !!this._fav);
     this._els.fav.querySelector("ha-icon").setAttribute("icon", this._fav ? "mdi:heart" : "mdi:heart-outline");
@@ -671,8 +594,8 @@ export class MaPlayerCard extends HTMLElement {
     this._renderFav();
     this._haptic(remove ? "light" : "success");
     try {
-      if (remove) await be.unfavorite(ent);
-      else await be.favorite(ent);
+      if (remove) await be.favorites.unfavorite(ent);
+      else await be.favorites.favorite(ent);
       this._browser._showToast(
         item,
         remove ? "Quitada de favoritos" : "Agregada a favoritos",
@@ -698,9 +621,9 @@ export class MaPlayerCard extends HTMLElement {
       this._renderQueue();
     }
     try {
-      const info = await be.queueInfo(ent);
+      const info = await be.queue.info(ent);
       let upcoming = this._queue ? this._queue.upcoming : [];
-      if (withItems) upcoming = await be.queueItems(ent, info, Number(this._config.queue_limit) || 50);
+      if (withItems) upcoming = await be.queue.items(ent, info, Number(this._config.queue_limit) || 50);
       if (ent !== this._entity() || this._qDrag || this._qBusy) return;
       this._queue = { current: info.current, upcoming, total: info.total, idx: info.idx };
       const recentLocal = this._favAt && Date.now() - this._favAt < 6000;
@@ -755,9 +678,9 @@ export class MaPlayerCard extends HTMLElement {
       ${q.current ? `<div class="q-sec">Reproduciendo</div>${this._queueRow(q.current, -1, true)}` : ""}
       <div class="q-sec">A continuación <span>· ${left} canciones</span></div>
       <div class="q-list">${q.upcoming.length ? q.upcoming.map((x, i) => this._queueRow(x, i)).join("") : `<div class="q-empty">No hay más canciones en la cola.</div>`}</div>
-      ${more > 0 && !be.partial ? `<div class="q-empty">y ${more} más…</div>` : ""}
+      ${more > 0 && !be.queue.partial ? `<div class="q-empty">y ${more} más…</div>` : ""}
       ${
-        be.partial
+        be.queue.partial
           ? `<div class="q-empty">Tu versión de Home Assistant solo informa la próxima canción.
         La lista completa llega con una versión más nueva de la integración, o instalando mass_queue.</div>`
           : ""
@@ -860,13 +783,7 @@ export class MaPlayerCard extends HTMLElement {
         q.upcoming.splice(from, 1);
         q.upcoming.splice(to, 0, item);
       },
-      async (be, ent) => {
-        // mass_queue solo sabe "subir uno", "bajar uno" y "a continuación": encadenamos pasos
-        if (to === 0) return be.move(ent, item.id, "next");
-        const dir = to < from ? "up" : "down";
-        for (let n = Math.abs(to - from); n > 0; n--) await be.move(ent, item.id, dir);
-        return undefined;
-      },
+      (be, ent) => be.queue.moveTo(ent, item.id, from, to),
     );
   }
 
@@ -880,7 +797,7 @@ export class MaPlayerCard extends HTMLElement {
         q.upcoming.splice(i, 1);
         q.total -= 1;
       },
-      (be, ent) => be.remove(ent, item.id),
+      (be, ent) => be.queue.remove(ent, item.id),
     );
   }
 
@@ -888,7 +805,7 @@ export class MaPlayerCard extends HTMLElement {
     const item = this._queue.upcoming[i];
     this._haptic("light");
     try {
-      await this._backend().playItem(this._entity(), item.id);
+      await this._backend().queue.play(this._entity(), item.id);
       this._browser._showToast({ name: item.name, image: item.image }, "Reproduciendo", "mdi:play-circle");
     } catch (err) {
       this._browser._showToast(

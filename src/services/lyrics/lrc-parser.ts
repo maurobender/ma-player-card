@@ -1,6 +1,12 @@
 // "[01:23.45] texto" → [{ t: 83.45, text: "texto" }]
-export function parseLrc(lrc) {
-  const lines = [];
+export interface LrcLine {
+  /** Segundos */
+  t: number;
+  text: string;
+}
+
+export function parseLrc(lrc: string | null | undefined): LrcLine[] {
+  const lines: LrcLine[] = [];
   for (const raw of String(lrc || "").split(/\r?\n/)) {
     const stamps = [...raw.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)];
     if (!stamps.length) continue;

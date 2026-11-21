@@ -8,7 +8,7 @@ const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url
 const dev = process.argv.includes("--dev");
 
 const options = {
-  entryPoints: ["src/main.js"],
+  entryPoints: ["src/main.ts"],
   outfile: "dist/ma-player-card.js",
   bundle: true,
   format: "esm",

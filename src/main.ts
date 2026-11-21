@@ -12,13 +12,28 @@ import { MaBrowserCard } from "./cards/browser-card/browser-card.js";
 import { MaPlayerCard } from "./cards/player-card/player-card.js";
 import { VERSION } from "./version.js";
 
-const defineOnce = (name, cls) => {
+interface CustomCardInfo {
+  type: string;
+  name: string;
+  description: string;
+  preview?: boolean;
+  documentationURL?: string;
+}
+
+declare global {
+  interface Window {
+    customCards?: CustomCardInfo[];
+  }
+}
+
+const defineOnce = (name: string, cls: CustomElementConstructor) => {
   if (!customElements.get(name)) customElements.define(name, cls);
 };
 defineOnce("ma-browser-card", MaBrowserCard);
 defineOnce("ma-player-card", MaPlayerCard);
 
 window.customCards = window.customCards || [];
+const customCards = window.customCards;
 for (const card of [
   {
     type: "ma-player-card",
@@ -31,8 +46,8 @@ for (const card of [
     description: "Buscá canciones, artistas, álbumes, playlists y radios y reproducilos en un parlante.",
   },
 ]) {
-  if (!window.customCards.some((c) => c.type === card.type)) {
-    window.customCards.push({
+  if (!customCards.some((c) => c.type === card.type)) {
+    customCards.push({
       ...card,
       preview: true,
       documentationURL: "https://www.home-assistant.io/integrations/music_assistant/",

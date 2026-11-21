@@ -1,6 +1,128 @@
 /* ma-player-card v0.5.1 — generado desde src/ con `npm run build`. No editar a mano. */
 
-// src/constants.js
+// src/backend/types.ts
+var UnsupportedError = class extends Error {
+};
+
+// src/backend/native/favorites.ts
+var NativeFavorites = class {
+  constructor(hass) {
+    this.hass = hass;
+  }
+  hass;
+  canUnfavorite = false;
+  /** El botón está en el mismo dispositivo que el media_player. */
+  button(entity) {
+    const ents = this.hass().entities || {};
+    const me = ents[entity];
+    if (!me || !me.device_id) return null;
+    const btn = Object.values(ents).find(
+      (x) => !!x && x.device_id === me.device_id && x.entity_id.startsWith("button.") && (x.translation_key === "favorite_now_playing" || /favorit/.test(x.entity_id))
+    );
+    return btn ? btn.entity_id : null;
+  }
+  canFavorite(entity) {
+    return !!this.button(entity);
+  }
+  async favorite(entity) {
+    const btn = this.button(entity);
+    if (!btn) throw new Error("No encontré el botón de favorito de Music Assistant");
+    await this.hass().callService("button", "press", { entity_id: btn });
+  }
+  async unfavorite(_entity) {
+    throw new UnsupportedError("La integración oficial no permite quitar favoritos");
+  }
+};
+
+// src/backend/mass-queue/favorites.ts
+var MassQueueFavorites = class extends NativeFavorites {
+  canUnfavorite = true;
+  /** Siempre: aunque no encontremos el botón, se puede quitar un favorito. */
+  canFavorite(_entity) {
+    return true;
+  }
+  async unfavorite(entity) {
+    await this.hass().callService("mass_queue", "unfavorite_current_item", { entity });
+  }
+};
+
+// src/backend/call.ts
+async function callWithResponse(hass, domain, service, data, entity) {
+  const r = await hass.callWS({
+    type: "call_service",
+    domain,
+    service,
+    service_data: data,
+    ...entity ? { target: { entity_id: entity } } : {},
+    return_response: true
+  });
+  return r && r.response || r || {};
+}
+function forEntity(response, entity) {
+  return response[entity] ?? response;
+}
+var errorMessage = (err) => {
+  if (err && typeof err === "object") {
+    const e = err;
+    if (e.message || e.code) return String(e.message || e.code);
+  }
+  return String(err);
+};
+
+// src/backend/mass-queue/queue.ts
+function fromMassQueue(x) {
+  return {
+    id: x.queue_item_id,
+    name: x.media_title || "",
+    artist: x.media_artist || "",
+    album: x.media_album_name || "",
+    image: x.media_image || (x.local_image_encoded ? `data:image/jpeg;base64,${x.local_image_encoded}` : ""),
+    duration: 0,
+    favorite: x.favorite
+  };
+}
+function moveSteps(from, to) {
+  if (from === to) return [];
+  if (to === 0) return ["next"];
+  return Array(Math.abs(to - from)).fill(to < from ? "up" : "down");
+}
+var MassQueueQueue = class {
+  constructor(hass, native) {
+    this.hass = hass;
+    this.native = native;
+  }
+  hass;
+  native;
+  can = { reorder: true, remove: true, playItem: true };
+  partial = false;
+  async call(service, data) {
+    await this.hass().callService("mass_queue", service, data);
+  }
+  info(entity) {
+    return this.native.info(entity);
+  }
+  async items(entity, info, limit) {
+    if (info.total <= info.idx + 1) return [];
+    const r = await callWithResponse(this.hass(), "mass_queue", "get_queue_items", {
+      entity,
+      offset: info.idx + 1,
+      limit
+    });
+    const list = forEntity(r, entity);
+    return Array.isArray(list) ? list.map(fromMassQueue) : [];
+  }
+  async moveTo(entity, id, from, to) {
+    for (const dir of moveSteps(from, to)) await this.call(`move_queue_item_${dir}`, { entity, queue_item_id: id });
+  }
+  remove(entity, id) {
+    return this.call("remove_queue_item", { entity, queue_item_id: id });
+  }
+  play(entity, id) {
+    return this.call("play_queue_item", { entity, queue_item_id: id });
+  }
+};
+
+// src/constants.ts
 var TYPES = {
   track: { label: "Canciones", key: "tracks", icon: "mdi:music-note", enqueue: "play", list: true },
   artist: { label: "Artistas", key: "artists", icon: "mdi:account-music", enqueue: "replace", round: true },
@@ -37,7 +159,218 @@ var MIN_TILE_PX = 110;
 var AUTO_TILE_PX = 170;
 var LIST_COL_PX = 340;
 
-// src/services/speaker-target.js
+// src/backend/native/library.ts
+var entryIds = /* @__PURE__ */ new Map();
+var NativeLibrary = class {
+  constructor(hass, entity, configEntryId) {
+    this.hass = hass;
+    this.entity = entity;
+    this.configEntryId = configEntryId;
+  }
+  hass;
+  entity;
+  configEntryId;
+  async search(query, type, { limit, libraryOnly }) {
+    const data = await callWithResponse(this.hass(), "music_assistant", "search", {
+      config_entry_id: await this.entryId(),
+      name: query,
+      media_type: type,
+      limit,
+      library_only: !!libraryOnly
+    });
+    return data[TYPES[type].key] || data[type] || data[`${type}s`] || [];
+  }
+  async getLibrary({ mediaType, limit, favorite, orderBy }) {
+    const data = await callWithResponse(this.hass(), "music_assistant", "get_library", {
+      config_entry_id: await this.entryId(),
+      media_type: mediaType,
+      limit,
+      ...favorite ? { favorite: true } : {},
+      ...orderBy ? { order_by: orderBy } : {}
+    });
+    return data.items || [];
+  }
+  async play(entity, item, enqueue) {
+    await this.hass().callWS({
+      type: "call_service",
+      domain: "music_assistant",
+      service: "play_media",
+      service_data: { media_id: item.uri, media_type: item.mediaType, enqueue },
+      target: { entity_id: entity }
+    });
+  }
+  /** La integración a la que pertenece la entidad. Si no se puede saber, la primera cargada. */
+  entryId() {
+    if (this.configEntryId) return Promise.resolve(this.configEntryId);
+    let p = entryIds.get(this.entity);
+    if (!p) {
+      p = this.lookupEntryId();
+      entryIds.set(this.entity, p);
+      p.catch(() => entryIds.delete(this.entity));
+    }
+    return p;
+  }
+  async lookupEntryId() {
+    const hass = this.hass();
+    try {
+      const ent = await hass.callWS({
+        type: "config/entity_registry/get",
+        entity_id: this.entity
+      });
+      if (ent && ent.platform === "music_assistant" && ent.config_entry_id) return ent.config_entry_id;
+    } catch (_) {
+    }
+    const entries = await hass.callWS({
+      type: "config_entries/get",
+      domain: "music_assistant"
+    });
+    const e = entries.find((x) => x.state === "loaded") || entries[0];
+    if (!e) throw new Error("No encontré la integración Music Assistant.");
+    return e.entry_id;
+  }
+};
+
+// src/backend/native/player.ts
+var HaPlayer = class {
+  constructor(hass) {
+    this.hass = hass;
+  }
+  hass;
+  async call(entity, service, data = {}) {
+    await this.hass().callService("media_player", service, { entity_id: entity, ...data });
+  }
+  playPause(entity) {
+    return this.call(entity, "media_play_pause");
+  }
+  previous(entity) {
+    return this.call(entity, "media_previous_track");
+  }
+  next(entity) {
+    return this.call(entity, "media_next_track");
+  }
+  seek(entity, seconds) {
+    return this.call(entity, "media_seek", { seek_position: seconds });
+  }
+  setVolume(entity, level) {
+    return this.call(entity, "volume_set", { volume_level: level });
+  }
+  setShuffle(entity, shuffle) {
+    return this.call(entity, "shuffle_set", { shuffle });
+  }
+  setRepeat(entity, repeat) {
+    return this.call(entity, "repeat_set", { repeat });
+  }
+};
+
+// src/utils/format.ts
+var names = (list) => Array.isArray(list) ? list.map((a) => a?.name).filter(Boolean).join(", ") : "";
+var fmtTime = (secs) => {
+  let s = Number.isFinite(secs) && secs > 0 ? Math.floor(secs) : 0;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor(s % 3600 / 60);
+  s %= 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+};
+
+// src/backend/native/queue.ts
+function fromNative(qi) {
+  if (!qi) return null;
+  const mi = qi.media_item || {};
+  return {
+    id: qi.queue_item_id,
+    name: mi.name || qi.name || "",
+    artist: names(mi.artists),
+    album: mi.album?.name || "",
+    image: mi.image || "",
+    duration: qi.duration || 0,
+    favorite: mi.favorite
+  };
+}
+var NativeQueue = class {
+  constructor(hass) {
+    this.hass = hass;
+  }
+  hass;
+  can = { reorder: false, remove: false, playItem: false };
+  /** ¿get_queue acepta limit/offset? (HA de noviembre de 2026 en adelante). undefined = no sabemos aún. */
+  itemsSupported;
+  get partial() {
+    return this.itemsSupported === false;
+  }
+  async getQueue(entity, data = {}) {
+    const r = await callWithResponse(this.hass(), "music_assistant", "get_queue", data, entity);
+    return forEntity(r, entity);
+  }
+  async info(entity) {
+    const q = await this.getQueue(entity);
+    return {
+      current: fromNative(q.current_item),
+      next: fromNative(q.next_item),
+      idx: q.current_index == null ? -1 : q.current_index,
+      total: q.items || 0,
+      elapsed: q.elapsed_time
+    };
+  }
+  async items(entity, info, limit) {
+    if (info.total <= info.idx + 1) return [];
+    if (this.itemsSupported !== false) {
+      try {
+        const more = await this.getQueue(entity, { offset: info.idx + 1, limit });
+        this.itemsSupported = true;
+        return (more.queue_items || []).map(fromNative).filter((x) => !!x);
+      } catch (err) {
+        if (!/not a valid option|extra keys/i.test(errorMessage(err))) throw err;
+        this.itemsSupported = false;
+      }
+    }
+    return info.next ? [info.next] : [];
+  }
+  async moveTo() {
+    throw new UnsupportedError("La integración oficial no permite mover canciones de la cola");
+  }
+  async remove() {
+    throw new UnsupportedError("La integración oficial no permite quitar canciones de la cola");
+  }
+  async play() {
+    throw new UnsupportedError("La integración oficial no permite saltar a una canción de la cola");
+  }
+};
+
+// src/backend/backend.ts
+function resolveBackendName(hass, mode = "auto") {
+  if (mode === "mass_queue") return "mass_queue";
+  if (mode === "auto" && hass?.services?.mass_queue) return "mass_queue";
+  return "native";
+}
+function createBackend(hass, name, options) {
+  const nativeQueue = new NativeQueue(hass);
+  const queue = name === "mass_queue" ? new MassQueueQueue(hass, nativeQueue) : nativeQueue;
+  const favorites = name === "mass_queue" ? new MassQueueFavorites(hass) : new NativeFavorites(hass);
+  return {
+    name,
+    can: { ...queue.can, unfavorite: favorites.canUnfavorite },
+    library: new NativeLibrary(hass, options.entity, options.configEntryId),
+    queue,
+    favorites,
+    player: new HaPlayer(hass)
+  };
+}
+var BackendHolder = class {
+  constructor(hass) {
+    this.hass = hass;
+  }
+  hass;
+  current = null;
+  get(options) {
+    const name = resolveBackendName(this.hass(), options.mode);
+    const key = `${name}|${options.entity}|${options.configEntryId || ""}`;
+    if (this.current?.key !== key) this.current = { key, backend: createBackend(this.hass, name, options) };
+    return this.current.backend;
+  }
+};
+
+// src/services/speaker-target.ts
 var TARGET_EVENT = "ma-player-card-target";
 var Target = {
   key: (entity) => `ma-browser-card.target.${entity}`,
@@ -58,21 +391,11 @@ var Target = {
   }
 };
 
-// src/utils/format.js
-var names = (list) => Array.isArray(list) ? list.map((a) => a && a.name).filter(Boolean).join(", ") : "";
-var fmtTime = (secs) => {
-  let s = Number.isFinite(secs) && secs > 0 ? Math.floor(secs) : 0;
-  const h = Math.floor(s / 3600);
-  const m = Math.floor(s % 3600 / 60);
-  s %= 60;
-  const pad = (n) => String(n).padStart(2, "0");
-  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
-};
+// src/utils/html.ts
+var ENTITIES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ENTITIES[c] ?? c);
 
-// src/utils/html.js
-var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-
-// src/utils/ids.js
+// src/utils/ids.ts
 var counter = 0;
 var nextInstanceId = () => ++counter;
 
@@ -352,6 +675,7 @@ var MaBrowserCard = class extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._id = `ma-browser-${nextInstanceId()}`;
+    this._backends = new BackendHolder(() => this._hass);
     this._q = "";
     this._type = null;
     this._status = "idle";
@@ -359,7 +683,6 @@ var MaBrowserCard = class extends HTMLElement {
     this._error = "";
     this._cache = /* @__PURE__ */ new Map();
     this._reqId = 0;
-    this._entryIdPromise = null;
     this._home = null;
     this._homeStatus = "idle";
     this._homeLoadedAt = 0;
@@ -379,7 +702,6 @@ var MaBrowserCard = class extends HTMLElement {
     if (!types.length) throw new Error(`media_types no válido. Opciones: ${Object.keys(TYPES).join(", ")}`);
     const mode = config.mode || "compact";
     if (!["compact", "inline", "overlay"].includes(mode)) throw new Error("mode debe ser 'compact' o 'inline'");
-    const prevEntity = this._config && this._config.entity;
     const home = (config.home || DEFAULT_HOME).filter((h) => h && TYPES[h.media_type]);
     this._config = {
       limit: 20,
@@ -392,7 +714,6 @@ var MaBrowserCard = class extends HTMLElement {
       home
     };
     if (!types.includes(this._type)) this._type = types[0];
-    if (prevEntity && prevEntity !== config.entity) this._entryIdPromise = null;
     this._cache.clear();
     this._home = null;
     this._homeLoadedAt = 0;
@@ -708,21 +1029,14 @@ var MaBrowserCard = class extends HTMLElement {
     this._homeStatus = "loading";
     if (this._status === "idle") this._renderBody();
     try {
-      const entryId = await this._getEntryId();
+      const library = this._backend().library;
       const results = await Promise.allSettled(
         this._config.home.map(
-          (h) => this._hass.callWS({
-            type: "call_service",
-            domain: "music_assistant",
-            service: "get_library",
-            service_data: {
-              config_entry_id: entryId,
-              media_type: h.media_type,
-              limit: Number(h.limit || this._config.home_limit) || 20,
-              ...h.favorite ? { favorite: true } : {},
-              ...h.order_by ? { order_by: h.order_by } : {}
-            },
-            return_response: true
+          (h) => library.getLibrary({
+            mediaType: h.media_type,
+            limit: Number(h.limit || this._config.home_limit) || 20,
+            favorite: !!h.favorite,
+            orderBy: h.order_by
           })
         )
       );
@@ -732,8 +1046,7 @@ var MaBrowserCard = class extends HTMLElement {
           console.warn(`[ma-browser-card] estante "${h.title}" falló:`, r.reason);
           return { title: h.title, type: h.media_type, items: [] };
         }
-        const data = r.value && r.value.response || r.value || {};
-        return { title: h.title, type: h.media_type, items: data.items || [] };
+        return { title: h.title, type: h.media_type, items: r.value };
       });
       this._homeLoadedAt = Date.now();
       this._homeStatus = results.every((r) => r.status === "rejected") ? "error" : "ok";
@@ -854,23 +1167,13 @@ var MaBrowserCard = class extends HTMLElement {
     if (this._wrap.classList.contains("is-full")) this._wrap.scrollTop = 0;
     this._search();
   }
-  async _getEntryId() {
-    if (this._config.config_entry_id) return this._config.config_entry_id;
-    if (!this._entryIdPromise) {
-      this._entryIdPromise = (async () => {
-        try {
-          const ent = await this._hass.callWS({ type: "config/entity_registry/get", entity_id: this._config.entity });
-          if (ent && ent.platform === "music_assistant" && ent.config_entry_id) return ent.config_entry_id;
-        } catch (_) {
-        }
-        const entries = await this._hass.callWS({ type: "config_entries/get", domain: "music_assistant" });
-        const e = entries.find((x) => x.state === "loaded") || entries[0];
-        if (!e) throw new Error("No encontré la integración Music Assistant.");
-        return e.entry_id;
-      })();
-      this._entryIdPromise.catch(() => this._entryIdPromise = null);
-    }
-    return this._entryIdPromise;
+  /** Acceso a Music Assistant (ver src/backend/). */
+  _backend() {
+    return this._backends.get({
+      mode: this._config.backend || "auto",
+      entity: this._config.entity,
+      configEntryId: this._config.config_entry_id
+    });
   }
   async _search(force = false) {
     const q = this._q.trim();
@@ -892,23 +1195,11 @@ var MaBrowserCard = class extends HTMLElement {
     this._status = "loading";
     this._renderBody();
     try {
-      const entryId = await this._getEntryId();
-      const resp = await this._hass.callWS({
-        type: "call_service",
-        domain: "music_assistant",
-        service: "search",
-        service_data: {
-          config_entry_id: entryId,
-          name: q,
-          media_type: type,
-          limit: Number(this._config.limit) || 20,
-          library_only: !!this._config.library_only
-        },
-        return_response: true
+      const items = await this._backend().library.search(q, type, {
+        limit: Number(this._config.limit) || 20,
+        libraryOnly: !!this._config.library_only
       });
       if (reqId !== this._reqId) return;
-      const data = resp && resp.response || resp || {};
-      const items = data[TYPES[type].key] || data[type] || data[`${type}s`] || [];
       this._cache.set(key, items);
       this._items = items;
       this._status = items.length ? "ok" : "empty";
@@ -1022,13 +1313,7 @@ var MaBrowserCard = class extends HTMLElement {
     this._haptic("light");
     if (fx) fx.className = "fx busy";
     try {
-      await this._hass.callWS({
-        type: "call_service",
-        domain: "music_assistant",
-        service: "play_media",
-        service_data: { media_id: it.uri, media_type: type, enqueue },
-        target: { entity_id: this._targetEntity() }
-      });
+      await this._backend().library.play(this._targetEntity(), { uri: it.uri, mediaType: type }, enqueue);
       if (fx) {
         fx.className = "fx done";
         setTimeout(() => {
@@ -1091,164 +1376,14 @@ var MaBrowserCard = class extends HTMLElement {
   }
 };
 
-// src/backend/native.js
-var NativeBackend = class _NativeBackend {
-  constructor(card) {
-    this.card = card;
-    this.itemsSupported = void 0;
-  }
-  get name() {
-    return "native";
-  }
-  get can() {
-    return { reorder: false, remove: false, playItem: false, unfavorite: false };
-  }
-  get hass() {
-    return this.card._hass;
-  }
-  async _getQueue(ent, data = {}) {
-    const r = await this.hass.callWS({
-      type: "call_service",
-      domain: "music_assistant",
-      service: "get_queue",
-      target: { entity_id: ent },
-      service_data: data,
-      return_response: true
-    });
-    const d = r && r.response || {};
-    return d[ent] || d;
-  }
-  static fromNative(qi) {
-    if (!qi) return null;
-    const mi = qi.media_item || {};
-    return {
-      id: qi.queue_item_id,
-      name: mi.name || qi.name,
-      artist: names(mi.artists),
-      album: mi.album && mi.album.name || "",
-      image: mi.image || "",
-      duration: qi.duration || 0,
-      favorite: mi.favorite
-    };
-  }
-  /** Estado de la cola: canción actual, posición y total. Funciona en todas las versiones. */
-  async queueInfo(ent) {
-    const info = await this._getQueue(ent);
-    return {
-      current: _NativeBackend.fromNative(info.current_item),
-      next: _NativeBackend.fromNative(info.next_item),
-      idx: info.current_index == null ? -1 : info.current_index,
-      total: info.items || 0
-    };
-  }
-  /** Próximas canciones (después de la actual). */
-  async queueItems(ent, info, limit) {
-    if (info.total <= info.idx + 1) return [];
-    if (this.itemsSupported !== false) {
-      try {
-        const more = await this._getQueue(ent, { offset: info.idx + 1, limit });
-        this.itemsSupported = true;
-        return (more.queue_items || []).map(_NativeBackend.fromNative);
-      } catch (err) {
-        const msg = err && (err.message || err.code) || "";
-        if (!/not a valid option|extra keys/i.test(msg)) throw err;
-        this.itemsSupported = false;
-      }
-    }
-    return info.next ? [info.next] : [];
-  }
-  /** Lista parcial: la versión de HA solo informa la próxima canción. */
-  get partial() {
-    return this.itemsSupported === false;
-  }
-  async favorite(ent) {
-    const btn = this.card._favButton(ent);
-    if (!btn) throw new Error("No encontré el botón de favorito de Music Assistant");
-    await this.hass.callService("button", "press", { entity_id: btn });
-  }
-  canFavorite(ent) {
-    return !!this.card._favButton(ent);
-  }
-  async unfavorite() {
-    throw new Error("La integración oficial no permite quitar favoritos");
-  }
-  async move() {
-    throw new Error("La integración oficial no permite mover canciones de la cola");
-  }
-  async remove() {
-    throw new Error("La integración oficial no permite quitar canciones de la cola");
-  }
-  async playItem() {
-    throw new Error("La integración oficial no permite saltar a una canción de la cola");
-  }
-};
-
-// src/backend/mass-queue.js
-var MassQueueBackend = class _MassQueueBackend extends NativeBackend {
-  get name() {
-    return "mass_queue";
-  }
-  get can() {
-    return { reorder: true, remove: true, playItem: true, unfavorite: true };
-  }
-  get partial() {
-    return false;
-  }
-  _call(service, data) {
-    return this.hass.callService("mass_queue", service, data);
-  }
-  static fromMassQueue(x) {
-    return {
-      id: x.queue_item_id,
-      name: x.media_title,
-      artist: x.media_artist || "",
-      album: x.media_album_name || "",
-      image: x.media_image || (x.local_image_encoded ? `data:image/jpeg;base64,${x.local_image_encoded}` : ""),
-      duration: 0,
-      // mass_queue no informa la duración
-      favorite: x.favorite
-    };
-  }
-  async queueItems(ent, info, limit) {
-    if (info.total <= info.idx + 1) return [];
-    const r = await this.hass.callWS({
-      type: "call_service",
-      domain: "mass_queue",
-      service: "get_queue_items",
-      service_data: { entity: ent, offset: info.idx + 1, limit },
-      return_response: true
-    });
-    const d = r && r.response || {};
-    return (d[ent] || []).map(_MassQueueBackend.fromMassQueue);
-  }
-  canFavorite() {
-    return true;
-  }
-  async favorite(ent) {
-    if (this.card._favButton(ent)) return super.favorite(ent);
-    throw new Error("No encontré el botón de favorito de Music Assistant");
-  }
-  async unfavorite(ent) {
-    await this._call("unfavorite_current_item", { entity: ent });
-  }
-  /** dir: "up" | "down" | "next" (justo después de la canción actual) */
-  async move(ent, id, dir) {
-    await this._call(`move_queue_item_${dir}`, { entity: ent, queue_item_id: id });
-  }
-  async remove(ent, id) {
-    await this._call("remove_queue_item", { entity: ent, queue_item_id: id });
-  }
-  async playItem(ent, id) {
-    await this._call("play_queue_item", { entity: ent, queue_item_id: id });
-  }
-};
-
-// src/components/slider.js
+// src/components/slider.ts
+var clamp01 = (n) => Math.min(1, Math.max(0, n));
+var STEPS = { ArrowLeft: -0.05, ArrowDown: -0.05, ArrowRight: 0.05, ArrowUp: 0.05 };
 function bindSlider(el, { onInput, onChange }) {
   let dragging = false;
   const ratio = (e) => {
     const r = el.getBoundingClientRect();
-    return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    return clamp01((e.clientX - r.left) / r.width);
   };
   el.addEventListener("pointerdown", (e) => {
     if (e.button > 0) return;
@@ -1257,7 +1392,9 @@ function bindSlider(el, { onInput, onChange }) {
     el.classList.add("drag");
     onInput(ratio(e));
   });
-  el.addEventListener("pointermove", (e) => dragging && onInput(ratio(e)));
+  el.addEventListener("pointermove", (e) => {
+    if (dragging) onInput(ratio(e));
+  });
   el.addEventListener("pointerup", (e) => {
     if (!dragging) return;
     dragging = false;
@@ -1270,11 +1407,10 @@ function bindSlider(el, { onInput, onChange }) {
     onChange(null);
   });
   el.addEventListener("keydown", (e) => {
-    const step = { ArrowLeft: -0.05, ArrowDown: -0.05, ArrowRight: 0.05, ArrowUp: 0.05 }[e.key];
+    const step = STEPS[e.key];
     if (step === void 0) return;
     e.preventDefault();
-    const cur = Number(el.dataset.value || 0);
-    onChange(Math.min(1, Math.max(0, cur + step)));
+    onChange(clamp01(Number(el.dataset.value || 0) + step));
   });
   return {
     get dragging() {
@@ -1283,12 +1419,13 @@ function bindSlider(el, { onInput, onChange }) {
   };
 }
 var setSlider = (el, ratio) => {
-  const r = Math.min(1, Math.max(0, ratio || 0));
-  el.dataset.value = r;
-  el.querySelector(".fill").style.width = `${r * 100}%`;
+  const r = clamp01(ratio || 0);
+  el.dataset.value = String(r);
+  const fill = el.querySelector(".fill");
+  if (fill) fill.style.width = `${r * 100}%`;
 };
 
-// src/services/lyrics/lrc-parser.js
+// src/services/lyrics/lrc-parser.ts
 function parseLrc(lrc) {
   const lines = [];
   for (const raw of String(lrc || "").split(/\r?\n/)) {
@@ -1300,27 +1437,29 @@ function parseLrc(lrc) {
   return lines.sort((a, b) => a.t - b.t);
 }
 
-// src/services/lyrics/lrclib.js
+// src/services/lyrics/lrclib.ts
 var lyricsCache = /* @__PURE__ */ new Map();
 var cleanTitle = (t) => String(t || "").replace(/\s*[([](?:feat\.?|ft\.?|with|con|featuring)\s[^)\]]*[)\]]/gi, "").replace(
   /\s+-\s+.*\b(?:remaster(?:ed)?|version|versión|live|en vivo|radio edit|edit|mono|stereo|acoustic|acústico)\b.*$/i,
   ""
 ).trim();
 var firstArtist = (a) => String(a || "").split(/\s*(?:,|;|&|\/|\sfeat\.?\s|\sft\.?\s|\sx\s|\sy\s)\s*/i)[0].trim();
-async function fetchLyrics(base, { title, artist, album, duration }) {
+var hasLyrics = (d) => !!d && !!(d.syncedLyrics || d.plainLyrics || d.instrumental);
+function bestMatch(list, dur) {
+  const ok = (list || []).filter(hasLyrics).filter((x) => !dur || !x.duration || Math.abs(x.duration - dur) <= 5).sort(
+    (x, y) => Number(!!y.syncedLyrics) - Number(!!x.syncedLyrics) || (dur ? Math.abs((x.duration || dur) - dur) - Math.abs((y.duration || dur) - dur) : 0)
+  );
+  return ok[0] || null;
+}
+function fetchLyrics(base, track, fetchFn = fetch) {
+  const { title, artist, album, duration } = track;
   const key = `${artist}|${title}`.toLowerCase();
-  if (lyricsCache.has(key)) return lyricsCache.get(key);
+  const cached = lyricsCache.get(key);
+  if (cached) return cached;
   const p = (async () => {
     const t2 = cleanTitle(title) || title;
     const a2 = firstArtist(artist) || artist || "";
     const dur = duration ? Math.round(duration) : 0;
-    const hasLyrics = (d) => d && (d.syncedLyrics || d.plainLyrics || d.instrumental);
-    const best = (list) => {
-      const ok = (list || []).filter(hasLyrics).filter((x) => !dur || !x.duration || Math.abs(x.duration - dur) <= 5).sort(
-        (x, y) => !!y.syncedLyrics - !!x.syncedLyrics || (dur ? Math.abs((x.duration || dur) - dur) - Math.abs((y.duration || dur) - dur) : 0)
-      );
-      return ok[0] || null;
-    };
     const tries = [
       ["get", { track_name: title, artist_name: artist || "", album_name: album || "", duration: dur || "" }],
       ["get", { track_name: t2, artist_name: a2, duration: dur || "" }],
@@ -1330,15 +1469,17 @@ async function fetchLyrics(base, { title, artist, album, duration }) {
     ];
     const seen = /* @__PURE__ */ new Set();
     for (const [kind, params] of tries) {
-      const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== "" && v != null));
+      const q = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v !== "" && v != null).map(([k, v]) => [k, String(v)])
+      );
       const url = `${base}/api/${kind}?${q}`;
       if (seen.has(url)) continue;
       seen.add(url);
-      const r = await fetch(url);
+      const r = await fetchFn(url);
       if (r.status === 404) continue;
       if (!r.ok) throw new Error(`LRCLIB respondió ${r.status}`);
       const d = await r.json();
-      const hit = kind === "get" ? hasLyrics(d) ? d : null : best(d);
+      const hit = kind === "get" ? hasLyrics(d) ? d : null : bestMatch(d, dur);
       if (hit) {
         console.info(`[ma-player-card] letra encontrada en LRCLIB (${kind}: ${q})`);
         return hit;
@@ -1352,7 +1493,85 @@ async function fetchLyrics(base, { title, artist, album, duration }) {
   return p;
 }
 
-// src/version.js
+// src/services/playback-clock.ts
+var EXPECT_MS = 15e3;
+var RESET_THRESHOLD_S = 3;
+var PlaybackClock = class {
+  constructor(log = () => {
+  }) {
+    this.log = log;
+  }
+  log;
+  key = "";
+  anchor = null;
+  lastUpd;
+  offset = 0;
+  expectAt = 0;
+  /** Desfase entre el reloj de MA y el nuestro + latencia, en ms (el menor observado). */
+  skew = null;
+  /**
+   * Incorpora lo que informa HA. `key` identifica canción + parlante: si cambia, empezamos de cero.
+   * `report` es null si no hay estado del parlante.
+   */
+  sync(key, report, duration, now = Date.now()) {
+    if (key !== this.key) {
+      this.key = key;
+      this.anchor = null;
+      this.lastUpd = void 0;
+      this.offset = 0;
+      this.expectAt = 0;
+    }
+    if (!report) return;
+    const { playing, updatedAt: upd } = report;
+    if (upd !== this.lastUpd || !this.anchor) {
+      const live = this.lastUpd !== void 0 && upd !== this.lastUpd;
+      this.lastUpd = upd;
+      const updMs = Date.parse(upd);
+      if (live && updMs) {
+        const obs = now - updMs;
+        this.skew = this.skew == null ? obs : Math.min(this.skew, obs);
+      }
+      let ha = Number(report.position) || 0;
+      if (playing && updMs) ha += 0.5 + Math.max(0, (now - (this.skew || 0) - updMs) / 1e3);
+      let pos = ha + this.offset;
+      let note = "";
+      if (this.expectAt && now - this.expectAt < EXPECT_MS && this.anchor) {
+        const mine = this.position(duration, now);
+        if (Math.abs(pos - mine) > RESET_THRESHOLD_S) {
+          this.offset = mine - ha;
+          pos = mine;
+          note = ` · MA reinició el conteo, compenso ${this.offset.toFixed(1)}s`;
+        }
+      }
+      this.anchor = { pos, at: now, playing };
+      this.log(
+        `HA ${report.state} pos=${report.position} upd=${upd ? upd.slice(11, 23) : "-"} (${updMs ? ((now - updMs) / 1e3).toFixed(1) : "?"}s) → ancla ${pos.toFixed(1)}${note}`
+      );
+    } else if (this.anchor.playing !== playing) {
+      this.anchor = { pos: this.position(duration, now), at: now, playing };
+    }
+  }
+  /** Acción nuestra (adelantar, pausar, reanudar): sabemos dónde está, aunque HA tarde o mienta. */
+  setLocal(pos, playing, now = Date.now()) {
+    this.log(`local ${playing ? "▶" : "⏸"} ancla ${pos.toFixed(1)}`);
+    this.expectAt = now;
+    this.anchor = { pos, at: now, playing };
+  }
+  /** Posición actual en segundos, entre 0 y la duración (si se conoce). */
+  position(duration, now = Date.now()) {
+    const an = this.anchor;
+    if (!an) return 0;
+    let p = an.pos + (an.playing ? (now - an.at) / 1e3 : 0);
+    if (duration) p = Math.min(p, duration);
+    return Math.max(0, p);
+  }
+  /** Para el panel de diagnóstico. */
+  get debug() {
+    return { anchor: this.anchor, skew: this.skew, offset: this.offset };
+  }
+};
+
+// src/version.ts
 var VERSION = "0.5.1";
 
 // src/cards/player-card/player-card.styles.js
@@ -1537,6 +1756,8 @@ var MaPlayerCard = class extends HTMLElement {
     this._queueStatus = "idle";
     this._lyrics = null;
     this._lyricIdx = -1;
+    this._backends = new BackendHolder(() => this._hass);
+    this._clock = new PlaybackClock((msg) => this._dbg(msg));
     this._onPopState = this._onPopState.bind(this);
     this._onTargetEvent = (e) => {
       if (this._config && e.detail.entity === this._config.entity) {
@@ -1606,58 +1827,17 @@ var MaPlayerCard = class extends HTMLElement {
   _duration(st) {
     return st && Number(st.attributes.media_duration) || 0;
   }
-  /*
-   * Reloj de reproducción propio. HA informa la posición como un "ancla":
-   * media_position (en segundos enteros) + el momento en que se midió (media_position_updated_at,
-   * con el reloj del servidor de Music Assistant). Corregimos tres cosas:
-   *   - el desfase entre el reloj del servidor y el de la tablet (_skew),
-   *   - el redondeo a segundos enteros (+0,5 s de media),
-   *   - que con algunos parlantes (p. ej. Voice PE), tras adelantar o reanudar, Music Assistant
-   *     reinicia el stream y cuenta el tiempo DESDE ESE REINICIO (manda pos=0 aunque la canción siga
-   *     en el segundo 90). Si eso pasa justo después de una acción nuestra, calculamos la diferencia
-   *     (_offset) y se la sumamos a todo lo que llegue hasta que cambie la canción.
-   */
+  // Reloj de reproducción: ver src/services/playback-clock.ts
   _syncClock(st) {
     const a = st && st.attributes || {};
     const key = `${this._entity()}|${a.media_title || ""}|${a.media_artist || ""}`;
-    if (key !== this._clockKey) {
-      this._clockKey = key;
-      this._anchor = null;
-      this._lastUpd = void 0;
-      this._offset = 0;
-      this._expect = null;
-    }
-    if (!st) return;
-    const now = Date.now();
-    const playing = st.state === "playing";
-    const upd = a.media_position_updated_at || "";
-    if (upd !== this._lastUpd || !this._anchor) {
-      const live = this._lastUpd !== void 0 && upd !== this._lastUpd;
-      this._lastUpd = upd;
-      const updMs = Date.parse(upd);
-      if (live && updMs) {
-        const obs = now - updMs;
-        this._skew = this._skew == null ? obs : Math.min(this._skew, obs);
-      }
-      let ha = Number(a.media_position) || 0;
-      if (playing && updMs) ha += 0.5 + Math.max(0, (now - (this._skew || 0) - updMs) / 1e3);
-      let pos = ha + (this._offset || 0);
-      let note = "";
-      if (this._expect && now - this._expect.at < 15e3 && this._anchor) {
-        const mine = this._position(st);
-        if (Math.abs(pos - mine) > 3) {
-          this._offset = mine - ha;
-          pos = mine;
-          note = ` · MA reinició el conteo, compenso ${this._offset.toFixed(1)}s`;
-        }
-      }
-      this._anchor = { pos, at: now, playing };
-      this._dbg(
-        `HA ${st.state} pos=${a.media_position} upd=${upd ? upd.slice(11, 23) : "-"} (${updMs ? ((now - updMs) / 1e3).toFixed(1) : "?"}s) → ancla ${pos.toFixed(1)}${note}`
-      );
-    } else if (this._anchor.playing !== playing) {
-      this._anchor = { pos: this._position(st), at: now, playing };
-    }
+    const report = st ? {
+      state: st.state,
+      playing: st.state === "playing",
+      position: a.media_position,
+      updatedAt: a.media_position_updated_at || ""
+    } : null;
+    this._clock.sync(key, report, this._duration(st));
   }
   // ---------- Diagnóstico (debug: true) ----------
   _dbg(msg) {
@@ -1671,17 +1851,8 @@ var MaPlayerCard = class extends HTMLElement {
     this._dbgBusy = true;
     const ent = this._entity();
     try {
-      const r = await this._hass.callWS({
-        type: "call_service",
-        domain: "music_assistant",
-        service: "get_queue",
-        target: { entity_id: ent },
-        service_data: {},
-        return_response: true
-      });
-      const d = r && r.response || {};
-      const q = d[ent] || d;
-      this._dbgQueue = { elapsed: q.elapsed_time, at: Date.now() };
+      const info = await this._backend().queue.info(ent);
+      this._dbgQueue = { elapsed: info.elapsed, at: Date.now() };
     } catch (err) {
       this._dbgQueue = { error: err && err.message || String(err), at: Date.now() };
     }
@@ -1695,7 +1866,7 @@ var MaPlayerCard = class extends HTMLElement {
       this._dbgPollQueue();
     }
     const a = st && st.attributes || {};
-    const an = this._anchor;
+    const { anchor: an, skew, offset } = this._clock.debug;
     const q = this._dbgQueue;
     const ago = (t) => `${((Date.now() - t) / 1e3).toFixed(1)}s`;
     el.textContent = [
@@ -1703,8 +1874,8 @@ var MaPlayerCard = class extends HTMLElement {
       `HA media_position: ${a.media_position}  duración: ${a.media_duration}`,
       `HA updated_at: ${a.media_position_updated_at || "-"}`,
       `reloj tablet: ${(/* @__PURE__ */ new Date()).toISOString()}`,
-      `desfase reloj (skew): ${this._skew == null ? "sin medir" : `${this._skew} ms`}   compensación MA: ${(this._offset || 0).toFixed(1)}s`,
-      `ancla: ${an ? `${an.pos.toFixed(1)}s hace ${ago(an.at)} ${an.playing ? "▶" : "⏸"}${an.local ? " (local)" : ""}` : "-"}`,
+      `desfase reloj (skew): ${skew == null ? "sin medir" : `${skew} ms`}   compensación MA: ${offset.toFixed(1)}s`,
+      `ancla: ${an ? `${an.pos.toFixed(1)}s hace ${ago(an.at)} ${an.playing ? "▶" : "⏸"}` : "-"}`,
       `POSICIÓN TARJETA: ${pos.toFixed(1)}s`,
       `cola MA elapsed_time: ${q ? q.error ? `error ${q.error}` : `${q.elapsed}s (hace ${ago(q.at)})` : "…"}`,
       "— eventos —",
@@ -1712,17 +1883,10 @@ var MaPlayerCard = class extends HTMLElement {
     ].join("\n");
   }
   _setLocalPosition(pos, playing) {
-    this._dbg(`local ${playing ? "▶" : "⏸"} ancla ${pos.toFixed(1)}`);
-    this._expect = { at: Date.now() };
-    this._anchor = { pos, at: Date.now(), playing };
+    this._clock.setLocal(pos, playing);
   }
   _position(st) {
-    const an = this._anchor;
-    if (!st || !an) return 0;
-    let p = an.pos + (an.playing ? (Date.now() - an.at) / 1e3 : 0);
-    const d = this._duration(st);
-    if (d) p = Math.min(p, d);
-    return Math.max(0, p);
+    return st ? this._clock.position(this._duration(st)) : 0;
   }
   _picture(st) {
     const a = st && st.attributes || {};
@@ -1855,12 +2019,12 @@ var MaPlayerCard = class extends HTMLElement {
         if (r === null || !d) return this._tick();
         const pos = r * d;
         this._setLocalPosition(pos, this._isPlaying(this._state()));
-        this._call("media_seek", { seek_position: Math.round(pos * 10) / 10 });
+        this._run("media_seek", (p, e) => p.seek(e, Math.round(pos * 10) / 10));
         this._tick();
       }
     });
     let volTimer = null;
-    const sendVol = (r) => this._call("volume_set", { volume_level: Math.round(r * 100) / 100 });
+    const sendVol = (r) => this._run("volume_set", (p, e) => p.setVolume(e, Math.round(r * 100) / 100));
     bindSlider(this._els.vol, {
       onInput: (r) => {
         this._vol = { v: r, at: Date.now() };
@@ -1886,7 +2050,7 @@ var MaPlayerCard = class extends HTMLElement {
       const pos = Number(line.dataset.t);
       this._setLocalPosition(pos, this._isPlaying(this._state()));
       this._lyUserAt = 0;
-      this._call("media_seek", { seek_position: pos });
+      this._run("media_seek", (p, e2) => p.seek(e2, pos));
       this._haptic("light");
     });
     const userScroll = () => this._lyUserAt = Date.now();
@@ -2019,8 +2183,9 @@ var MaPlayerCard = class extends HTMLElement {
     this._haptic("selection");
   }
   // ---------- Comandos ----------
-  _call(service, data = {}) {
-    return this._hass.callService("media_player", service, { entity_id: this._entity(), ...data }).catch((err) => console.error(`[ma-player-card] ${service}`, err));
+  /** Ejecuta un comando del reproductor sobre el parlante actual; los errores solo se registran. */
+  _run(label, fn) {
+    return fn(this._backend().player, this._entity()).catch((err) => console.error(`[ma-player-card] ${label}`, err));
   }
   _cmd(cmd) {
     const st = this._state();
@@ -2033,17 +2198,17 @@ var MaPlayerCard = class extends HTMLElement {
         this._setLocalPosition(this._position(st), this._optPlaying);
         this._sig = "";
         this._update();
-        return this._call("media_play_pause");
+        return this._run("media_play_pause", (p, e) => p.playPause(e));
       case "prev":
-        return this._call("media_previous_track");
+        return this._run("media_previous_track", (p, e) => p.previous(e));
       case "next":
-        return this._call("media_next_track");
+        return this._run("media_next_track", (p, e) => p.next(e));
       case "shuffle":
-        return this._call("shuffle_set", { shuffle: !a.shuffle });
+        return this._run("shuffle_set", (p, e) => p.setShuffle(e, !a.shuffle));
       case "repeat": {
         const order = ["off", "all", "one"];
         const next = order[(order.indexOf(a.repeat || "off") + 1) % order.length];
-        return this._call("repeat_set", { repeat: next });
+        return this._run("repeat_set", (p, e) => p.setRepeat(e, next));
       }
       case "search":
         return this._browser.open();
@@ -2054,27 +2219,16 @@ var MaPlayerCard = class extends HTMLElement {
   // ---------- Backend ----------
   /** backend: auto (mass_queue si está instalado) | native | mass_queue */
   _backend() {
-    const want = this._config.backend || "auto";
-    const hasMq = !!(this._hass && this._hass.services && this._hass.services.mass_queue);
-    const name = want === "mass_queue" || want === "auto" && hasMq ? "mass_queue" : "native";
-    if (!this._be || this._be.name !== name) {
-      this._be = name === "mass_queue" ? new MassQueueBackend(this) : new NativeBackend(this);
-    }
-    return this._be;
+    return this._backends.get({
+      mode: this._config.backend || "auto",
+      entity: this._config.entity,
+      configEntryId: this._config.config_entry_id
+    });
   }
   // ---------- Favorito ----------
-  _favButton(ent = this._entity()) {
-    const ents = this._hass && this._hass.entities || {};
-    const me = ents[ent];
-    if (!me || !me.device_id) return null;
-    const btn = Object.values(ents).find(
-      (x) => x.device_id === me.device_id && x.entity_id.startsWith("button.") && (x.translation_key === "favorite_now_playing" || /favorit/.test(x.entity_id))
-    );
-    return btn ? btn.entity_id : null;
-  }
   _renderFav() {
     const st = this._state();
-    const show = !!(this._backend().canFavorite(this._entity()) && st && st.attributes.media_title);
+    const show = !!(this._backend().favorites.canFavorite(this._entity()) && st && st.attributes.media_title);
     this._els.fav.hidden = !show;
     this._els.fav.classList.toggle("on", !!this._fav);
     this._els.fav.querySelector("ha-icon").setAttribute("icon", this._fav ? "mdi:heart" : "mdi:heart-outline");
@@ -2094,8 +2248,8 @@ var MaPlayerCard = class extends HTMLElement {
     this._renderFav();
     this._haptic(remove ? "light" : "success");
     try {
-      if (remove) await be.unfavorite(ent);
-      else await be.favorite(ent);
+      if (remove) await be.favorites.unfavorite(ent);
+      else await be.favorites.favorite(ent);
       this._browser._showToast(
         item,
         remove ? "Quitada de favoritos" : "Agregada a favoritos",
@@ -2119,9 +2273,9 @@ var MaPlayerCard = class extends HTMLElement {
       this._renderQueue();
     }
     try {
-      const info = await be.queueInfo(ent);
+      const info = await be.queue.info(ent);
       let upcoming = this._queue ? this._queue.upcoming : [];
-      if (withItems) upcoming = await be.queueItems(ent, info, Number(this._config.queue_limit) || 50);
+      if (withItems) upcoming = await be.queue.items(ent, info, Number(this._config.queue_limit) || 50);
       if (ent !== this._entity() || this._qDrag || this._qBusy) return;
       this._queue = { current: info.current, upcoming, total: info.total, idx: info.idx };
       const recentLocal = this._favAt && Date.now() - this._favAt < 6e3;
@@ -2174,8 +2328,8 @@ var MaPlayerCard = class extends HTMLElement {
       ${q.current ? `<div class="q-sec">Reproduciendo</div>${this._queueRow(q.current, -1, true)}` : ""}
       <div class="q-sec">A continuación <span>· ${left} canciones</span></div>
       <div class="q-list">${q.upcoming.length ? q.upcoming.map((x, i) => this._queueRow(x, i)).join("") : `<div class="q-empty">No hay más canciones en la cola.</div>`}</div>
-      ${more > 0 && !be.partial ? `<div class="q-empty">y ${more} más…</div>` : ""}
-      ${be.partial ? `<div class="q-empty">Tu versión de Home Assistant solo informa la próxima canción.
+      ${more > 0 && !be.queue.partial ? `<div class="q-empty">y ${more} más…</div>` : ""}
+      ${be.queue.partial ? `<div class="q-empty">Tu versión de Home Assistant solo informa la próxima canción.
         La lista completa llega con una versión más nueva de la integración, o instalando mass_queue.</div>` : ""}
       ${be.can.reorder ? `<div class="q-empty">Tocá una canción para escucharla · arrastrá ≡ para moverla.</div>` : ""}
       <div class="q-pad"></div>`;
@@ -2269,12 +2423,7 @@ var MaPlayerCard = class extends HTMLElement {
         q.upcoming.splice(from, 1);
         q.upcoming.splice(to, 0, item);
       },
-      async (be, ent) => {
-        if (to === 0) return be.move(ent, item.id, "next");
-        const dir = to < from ? "up" : "down";
-        for (let n = Math.abs(to - from); n > 0; n--) await be.move(ent, item.id, dir);
-        return void 0;
-      }
+      (be, ent) => be.queue.moveTo(ent, item.id, from, to)
     );
   }
   _queueRemove(i) {
@@ -2287,14 +2436,14 @@ var MaPlayerCard = class extends HTMLElement {
         q.upcoming.splice(i, 1);
         q.total -= 1;
       },
-      (be, ent) => be.remove(ent, item.id)
+      (be, ent) => be.queue.remove(ent, item.id)
     );
   }
   async _queuePlay(i) {
     const item = this._queue.upcoming[i];
     this._haptic("light");
     try {
-      await this._backend().playItem(this._entity(), item.id);
+      await this._backend().queue.play(this._entity(), item.id);
       this._browser._showToast({ name: item.name, image: item.image }, "Reproduciendo", "mdi:play-circle");
     } catch (err) {
       this._browser._showToast(
@@ -2389,13 +2538,14 @@ var MaPlayerCard = class extends HTMLElement {
   }
 };
 
-// src/main.js
+// src/main.ts
 var defineOnce = (name, cls) => {
   if (!customElements.get(name)) customElements.define(name, cls);
 };
 defineOnce("ma-browser-card", MaBrowserCard);
 defineOnce("ma-player-card", MaPlayerCard);
 window.customCards = window.customCards || [];
+var customCards = window.customCards;
 for (const card of [
   {
     type: "ma-player-card",
@@ -2408,8 +2558,8 @@ for (const card of [
     description: "Buscá canciones, artistas, álbumes, playlists y radios y reproducilos en un parlante."
   }
 ]) {
-  if (!window.customCards.some((c) => c.type === card.type)) {
-    window.customCards.push({
+  if (!customCards.some((c) => c.type === card.type)) {
+    customCards.push({
       ...card,
       preview: true,
       documentationURL: "https://www.home-assistant.io/integrations/music_assistant/"

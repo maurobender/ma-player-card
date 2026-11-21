@@ -1,6 +1,31 @@
 // Constantes compartidas por las cards.
 
-export const TYPES = {
+import type { Enqueue, MediaType } from "./backend/types.js";
+
+export interface MediaTypeInfo {
+  label: string;
+  /** Clave de la lista en la respuesta de music_assistant.search */
+  key: string;
+  icon: string;
+  /** Qué hace tocar un resultado de este tipo */
+  enqueue: Enqueue;
+  /** Se muestra como lista en vez de grilla */
+  list?: boolean;
+  /** Portada redonda */
+  round?: boolean;
+  /** No tiene sentido encolarlo (radios) */
+  noQueue?: boolean;
+}
+
+export interface HomeShelf {
+  title: string;
+  media_type: MediaType;
+  favorite?: boolean;
+  order_by?: string;
+  limit?: number;
+}
+
+export const TYPES: Record<MediaType, MediaTypeInfo> = {
   track: { label: "Canciones", key: "tracks", icon: "mdi:music-note", enqueue: "play", list: true },
   artist: { label: "Artistas", key: "artists", icon: "mdi:account-music", enqueue: "replace", round: true },
   album: { label: "Álbumes", key: "albums", icon: "mdi:album", enqueue: "replace" },
@@ -9,9 +34,9 @@ export const TYPES = {
   podcast: { label: "Podcasts", key: "podcasts", icon: "mdi:podcast", enqueue: "replace" },
   audiobook: { label: "Audiolibros", key: "audiobooks", icon: "mdi:book-music", enqueue: "replace" },
 };
-export const DEFAULT_TYPES = ["track", "artist", "album", "playlist", "radio"];
+export const DEFAULT_TYPES: MediaType[] = ["track", "artist", "album", "playlist", "radio"];
 // Estantes de la vista inicial. order_by verificado en music_assistant/controllers/music/constants.py
-export const DEFAULT_HOME = [
+export const DEFAULT_HOME: HomeShelf[] = [
   { title: "Escuchado recientemente", media_type: "album", order_by: "last_played_desc" },
   { title: "Tus playlists", media_type: "playlist", favorite: true, order_by: "favorite_timestamp_desc" },
   { title: "Artistas favoritos", media_type: "artist", favorite: true, order_by: "favorite_timestamp_desc" },
@@ -19,7 +44,7 @@ export const DEFAULT_HOME = [
   { title: "Radios favoritas", media_type: "radio", favorite: true, order_by: "favorite_timestamp_desc" },
 ];
 export const HOME_TTL_MS = 5 * 60 * 1000;
-export const STATE_LABELS = {
+export const STATE_LABELS: Record<string, string> = {
   playing: "Reproduciendo",
   paused: "En pausa",
   idle: "Inactivo",

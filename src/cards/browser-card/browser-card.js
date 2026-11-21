@@ -3,6 +3,7 @@
  * Modos: inline, compact (botón + pantalla completa) y overlay (lo usa el reproductor).
  */
 
+import { BackendHolder } from "../../backend/backend.js";
 import {
   APPLE_RED,
   AUTO_TILE_PX,
@@ -28,6 +29,7 @@ export class MaBrowserCard extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._id = `ma-browser-${nextInstanceId()}`;
+    this._backends = new BackendHolder(() => this._hass);
     this._q = "";
     this._type = null;
     this._status = "idle"; // idle | loading | ok | empty | error
@@ -35,7 +37,6 @@ export class MaBrowserCard extends HTMLElement {
     this._error = "";
     this._cache = new Map();
     this._reqId = 0;
-    this._entryIdPromise = null;
     this._home = null; // [{ title, type, items }]
     this._homeStatus = "idle"; // idle | loading | ok | error
     this._homeLoadedAt = 0;
@@ -59,7 +60,6 @@ export class MaBrowserCard extends HTMLElement {
     const mode = config.mode || "compact";
     // overlay = sin tarjeta propia; lo usa ma-player-card para abrir el buscador por dentro
     if (!["compact", "inline", "overlay"].includes(mode)) throw new Error("mode debe ser 'compact' o 'inline'");
-    const prevEntity = this._config && this._config.entity;
     const home = (config.home || DEFAULT_HOME).filter((h) => h && TYPES[h.media_type]);
     this._config = {
       limit: 20,
@@ -72,7 +72,6 @@ export class MaBrowserCard extends HTMLElement {
       home,
     };
     if (!types.includes(this._type)) this._type = types[0];
-    if (prevEntity && prevEntity !== config.entity) this._entryIdPromise = null;
     this._cache.clear();
     this._home = null;
     this._homeLoadedAt = 0;
@@ -455,22 +454,15 @@ export class MaBrowserCard extends HTMLElement {
     this._homeStatus = "loading";
     if (this._status === "idle") this._renderBody();
     try {
-      const entryId = await this._getEntryId();
+      const library = this._backend().library;
       // Un pedido por estante, en paralelo. Si uno falla, los demás se muestran igual.
       const results = await Promise.allSettled(
         this._config.home.map((h) =>
-          this._hass.callWS({
-            type: "call_service",
-            domain: "music_assistant",
-            service: "get_library",
-            service_data: {
-              config_entry_id: entryId,
-              media_type: h.media_type,
-              limit: Number(h.limit || this._config.home_limit) || 20,
-              ...(h.favorite ? { favorite: true } : {}),
-              ...(h.order_by ? { order_by: h.order_by } : {}),
-            },
-            return_response: true,
+          library.getLibrary({
+            mediaType: h.media_type,
+            limit: Number(h.limit || this._config.home_limit) || 20,
+            favorite: !!h.favorite,
+            orderBy: h.order_by,
           }),
         ),
       );
@@ -480,8 +472,7 @@ export class MaBrowserCard extends HTMLElement {
           console.warn(`[ma-browser-card] estante "${h.title}" falló:`, r.reason);
           return { title: h.title, type: h.media_type, items: [] };
         }
-        const data = (r.value && r.value.response) || r.value || {};
-        return { title: h.title, type: h.media_type, items: data.items || [] };
+        return { title: h.title, type: h.media_type, items: r.value };
       });
       this._homeLoadedAt = Date.now();
       this._homeStatus = results.every((r) => r.status === "rejected") ? "error" : "ok";
@@ -629,24 +620,13 @@ export class MaBrowserCard extends HTMLElement {
     this._search();
   }
 
-  async _getEntryId() {
-    if (this._config.config_entry_id) return this._config.config_entry_id;
-    if (!this._entryIdPromise) {
-      this._entryIdPromise = (async () => {
-        try {
-          const ent = await this._hass.callWS({ type: "config/entity_registry/get", entity_id: this._config.entity });
-          if (ent && ent.platform === "music_assistant" && ent.config_entry_id) return ent.config_entry_id;
-        } catch (_) {
-          /* probamos el método B */
-        }
-        const entries = await this._hass.callWS({ type: "config_entries/get", domain: "music_assistant" });
-        const e = entries.find((x) => x.state === "loaded") || entries[0];
-        if (!e) throw new Error("No encontré la integración Music Assistant.");
-        return e.entry_id;
-      })();
-      this._entryIdPromise.catch(() => (this._entryIdPromise = null));
-    }
-    return this._entryIdPromise;
+  /** Acceso a Music Assistant (ver src/backend/). */
+  _backend() {
+    return this._backends.get({
+      mode: this._config.backend || "auto",
+      entity: this._config.entity,
+      configEntryId: this._config.config_entry_id,
+    });
   }
 
   async _search(force = false) {
@@ -671,23 +651,11 @@ export class MaBrowserCard extends HTMLElement {
     this._status = "loading";
     this._renderBody();
     try {
-      const entryId = await this._getEntryId();
-      const resp = await this._hass.callWS({
-        type: "call_service",
-        domain: "music_assistant",
-        service: "search",
-        service_data: {
-          config_entry_id: entryId,
-          name: q,
-          media_type: type,
-          limit: Number(this._config.limit) || 20,
-          library_only: !!this._config.library_only,
-        },
-        return_response: true,
+      const items = await this._backend().library.search(q, type, {
+        limit: Number(this._config.limit) || 20,
+        libraryOnly: !!this._config.library_only,
       });
       if (reqId !== this._reqId) return; // llegó una respuesta vieja
-      const data = (resp && resp.response) || resp || {};
-      const items = data[TYPES[type].key] || data[type] || data[`${type}s`] || [];
       this._cache.set(key, items);
       this._items = items;
       this._status = items.length ? "ok" : "empty";
@@ -816,13 +784,7 @@ export class MaBrowserCard extends HTMLElement {
     if (fx) fx.className = "fx busy";
 
     try {
-      await this._hass.callWS({
-        type: "call_service",
-        domain: "music_assistant",
-        service: "play_media",
-        service_data: { media_id: it.uri, media_type: type, enqueue },
-        target: { entity_id: this._targetEntity() },
-      });
+      await this._backend().library.play(this._targetEntity(), { uri: it.uri, mediaType: type }, enqueue);
       if (fx) {
         fx.className = "fx done";
         setTimeout(() => {
