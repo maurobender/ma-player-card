@@ -1,6 +1,6 @@
 {
   "name": "ma-player-card",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Lovelace cards for Music Assistant in Home Assistant: player, search, queue and synced lyrics",
   "private": true,
   "license": "MIT",
