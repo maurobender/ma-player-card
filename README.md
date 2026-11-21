@@ -1,40 +1,38 @@
-# ma-player-card
+# Music Assistant Player Card
 
-A **Music Assistant** player and music browser for Home Assistant, styled after Apple Music.
-One file (`ma-player-card.js`) with two cards:
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=maurobender&repository=ma-player-card&category=plugin)
+
+A **Music Assistant** player and music browser for Home Assistant dashboards, styled after Apple Music
+(unofficial, not affiliated with Apple).
+
+![Now playing](docs/images/now-playing.webp)
+
+One file, `ma-player-card.js`, with two cards:
 
 | Card | What it is |
 |---|---|
 | `custom:ma-player-card` | What's playing, plus a full-screen **Now playing** view: controls, progress, volume, shuffle/repeat, favorite, the **queue**, **synced lyrics** and the built-in browser (🔍). |
 | `custom:ma-browser-card` | The browser on its own: a button that opens search full screen, with recently played items and favorites. |
 
-- Install it with HACS, or copy the single file from a release (see *Installation*).
 - It works with the **official** Music Assistant integration that ships with Home Assistant.
-  If [`mass_queue`](https://github.com/droans/mass_queue) (HACS) is also installed, the queue becomes editable (see *Backends*).
+  If [`mass_queue`](https://github.com/droans/mass_queue) is also installed, the queue becomes editable (see *Backends*).
 - The interface follows the language of your Home Assistant profile. English and Spanish are included; other languages fall back to English.
 
-## Music Assistant actions it uses
+## Screenshots
 
-| Action | Used for | Key fields |
-|---|---|---|
-| `music_assistant.search` | Search | `config_entry_id`*, `name`*, `media_type` (`track`, `artist`, `album`, `playlist`, `radio`…), `limit` (default 5), `library_only` |
-| `music_assistant.get_library` | Home view: recently played and favorites | `config_entry_id`*, `media_type`*, `favorite`, `order_by` (`last_played_desc`, `favorite_timestamp_desc`, `play_count_desc`, `timestamp_added_desc`, `name`, `random`…), `limit` (default 25) |
-| `music_assistant.play_media` | Play | target `entity_id`*, `media_id`* (URI), `media_type`, `enqueue` (`play`, `replace`, `next`, `replace_next`, `add`) |
-| `music_assistant.get_queue` | Queue (read-only) and favorite state | target `entity_id`*, `limit`, `offset` |
-| `media_player.*` | Controls | `media_play_pause`, `media_previous_track`, `media_next_track`, `media_seek`, `volume_set`, `shuffle_set`, `repeat_set` |
-| `button.press` | ♥ Favorite | The *Favorite current song* button Music Assistant adds to each player |
-| `mass_queue.*` (optional) | Edit the queue, remove a favorite | `get_queue_items`, `move_queue_item_up/down/next`, `remove_queue_item`, `play_queue_item`, `unfavorite_current_item` (an `entity` field, not a target) |
-
-`search` returns grouped lists (`artists`, `albums`, `tracks`, `playlists`, `radio`, …) with `name`, `uri`, `image`, and so on.
-`config_entry_id` is detected from the entity, or can be set in the YAML.
+| Synced lyrics | Queue |
+|---|---|
+| ![Synced lyrics](docs/images/lyrics.webp) | ![Queue](docs/images/queue.webp) |
+| **Search** | **Browser home** |
+| ![Search results](docs/images/search.webp) | ![Browser home with favorite artists and albums](docs/images/home.webp) |
+| **Speaker picker** | |
+| ![Speaker picker](docs/images/speaker-picker.webp) | |
 
 ## Installation
 
 ### HACS (recommended)
 
-[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=maurobender&repository=ma-player-card&category=plugin)
-
-1. Click the button above, or in HACS open **⋮ → Custom repositories** and add
+1. Click the **Open in HACS** button above, or in HACS open **⋮ → Custom repositories** and add
    `https://github.com/maurobender/ma-player-card` with type **Dashboard**.
 2. Download **Music Assistant Player Card**. HACS adds the dashboard resource for you.
 3. Reload the browser. In the Companion app: *Settings → Companion app → Debugging → Reset frontend cache*, or close and reopen the app.
@@ -43,40 +41,23 @@ HACS lets you know when there is a new version.
 
 ### Manual
 
-1. Download `ma-player-card.js` from the [latest release](https://github.com/maurobender/ma-player-card/releases/latest)
-   (or build it yourself, see *Development*).
+1. Download `ma-player-card.js` from the [latest release](https://github.com/maurobender/ma-player-card/releases/latest).
 2. Copy it to `/config/www/` (for example with the *File editor* or *Samba* add-on).
 3. **Settings → Dashboards → ⋮ → Resources → Add resource**
    - URL: `/local/ma-player-card.js?v=1`
    - Type: **JavaScript module**
-4. Reload the browser, as in step 3 above.
 
-> If the *Resources* menu is missing, turn on **Advanced mode** in your user profile.
+   If the *Resources* menu is missing, turn on **Advanced mode** in your user profile.
+4. Reload the browser, as in step 3 of the HACS install.
 
-### Coming from `ma-browser-card.js`
-
-The file was renamed: everything, including the browser, now lives in `ma-player-card.js`.
-
-1. Install `ma-player-card.js` (see *Installation*).
-2. In **Resources**, **edit** the old `/local/ma-browser-card.js?v=…` resource and change its URL to `/local/ma-player-card.js?v=1`
-   (or delete it and add the new one). **Don't keep both**: the old browser would load instead.
-3. Your `custom:ma-browser-card` cards keep working, and the chosen speaker is kept.
-4. Optionally, delete `/config/www/ma-browser-card.js`.
-
-## Updating (cache busting)
-
-With HACS, just update from HACS and reload. For a manual install, Home Assistant and the Companion app cache resources
-aggressively. Every time you replace the file:
-
-1. Edit the resource and bump the number: `/local/ma-player-card.js?v=2`, `?v=3`, …
-2. Reload the page (Ctrl+Shift+R on desktop).
-3. Check the version banner in the console (F12), e.g. `MA-PLAYER-CARD v0.5.1`.
+To update, replace the file and bump the number in the resource URL (`?v=2`, `?v=3`, …): Home Assistant and the
+Companion app cache resources aggressively. The console (F12) shows the loaded version, e.g. `MA-PLAYER-CARD v0.5.1`.
 
 ## Player (`ma-player-card`)
 
 ```yaml
 type: custom:ma-player-card
-entity: media_player.home_assistant_voice_0a7e7c_media_player_2
+entity: media_player.living_room
 # Every browser option (media_types, home, speakers, accent_color, columns…) works here too
 queue_limit: 50     # queue songs shown
 lyrics: true        # synced lyrics button
@@ -134,9 +115,12 @@ official HA card shows too; this card compensates for it.
 
 ## Browser (`ma-browser-card`)
 
+With `ma-player-card` you don't need a separate browser card: 🔍 opens the same browser.
+`ma-browser-card` is useful when you only want the search button, for example on another dashboard.
+
 ```yaml
 type: custom:ma-browser-card
-entity: media_player.home_assistant_voice_0a7e7c_media_player_2
+entity: media_player.living_room
 mode: compact      # compact = a button that opens the browser full screen | inline = the browser inside the dashboard
 name: Search music
 accent_color: "#fa2d48"   # Apple Music red; "theme" uses the theme's primary color
@@ -166,6 +150,17 @@ speaker_selector: true   # button to choose which speaker plays
 | `home_limit` | `20` | Items per shelf |
 | `config_entry_id` | auto | Only if automatic detection fails |
 
+### Using the browser
+
+- **Tap the button** to open the browser full screen. With an empty search it shows your recently played items and favorites. Close it with ✕, *Esc* or Android's *back* button.
+- **Type** in the search field: it searches on its own after 350 ms, or when you press *Enter*.
+- **Songs** are shown as a list (1–3 columns depending on the width); everything else as an artwork grid.
+- **Tap** a result to play it right away on the speaker.
+  - Songs → `enqueue: play` (plays now, keeps the queue).
+  - Artists, albums, playlists and radio → `enqueue: replace` (replaces the queue).
+- **Long-press** (or tap **⋯**) for *Play now*, *Play next* (`next`) and *Add to queue* (`add`).
+  Radio only has *Play now*.
+
 ### Home view (`home`)
 
 Opening the browser with an empty search shows shelves that scroll sideways. Empty shelves are hidden.
@@ -194,27 +189,14 @@ home:
     order_by: favorite_timestamp_desc
 ```
 
-Each shelf takes `title`, `media_type`, `favorite`, `order_by` and `limit`. Without a `title`, the media type's name is used.
+Each shelf takes `title`, `media_type`, `favorite`, `order_by` (`last_played_desc`, `favorite_timestamp_desc`,
+`play_count_desc`, `timestamp_added_desc`, `name`, `random`…) and `limit`. Without a `title`, the media type's name is used.
 
 ### Speaker picker
 
 The button with the speaker's name (top right) lists the Music Assistant players and what each one is playing.
 The choice is remembered **on that device**, so a tablet and a phone can play on different speakers.
 If the chosen speaker disappears, the card goes back to `entity`.
-
-## Usage
-
-- **Tap the button** to open the browser full screen. With an empty search it shows your recently played items and favorites. Close it with ✕, *Esc* or Android's *back* button.
-- **Type** in the search field: it searches on its own after 350 ms, or when you press *Enter*.
-- **Songs** are shown as a list (1–3 columns depending on the width); everything else as an artwork grid.
-- **Tap** a result to play it right away on the speaker.
-  - Songs → `enqueue: play` (plays now, keeps the queue).
-  - Artists, albums, playlists and radio → `enqueue: replace` (replaces the queue).
-- **Long-press** (or tap **⋯**) for *Play now*, *Play next* (`next`) and *Add to queue* (`add`).
-  Radio only has *Play now*.
-
-With `ma-player-card` you don't need a separate browser card: 🔍 opens the same browser.
-`ma-browser-card` is still useful if you only want the search button on another dashboard.
 
 ## Development
 
@@ -226,7 +208,7 @@ npm install
 
 | Command | What it does |
 |---|---|
-| `npm run build` | Bundles `src/` into `dist/ma-player-card.js` (the file you copy to HA) |
+| `npm run build` | Bundles `src/` into `dist/ma-player-card.js` |
 | `npm run dev` | Rebuilds on save and serves the mocks at <http://localhost:8766/player.html> and <http://localhost:8766/browser.html> |
 | `npm run lint` | Lints with Biome |
 | `npm run format` | Formats with Biome |
@@ -234,7 +216,12 @@ npm install
 | `npm test` | Runs the tests (Vitest) |
 | `npm run check` | Lint + types + tests + build |
 
-`dist/` is a build output and is not committed.
+`dist/` is a build output and is not committed. To try a local build in Home Assistant, copy
+`dist/ma-player-card.js` to `/config/www/` as in the manual install.
+
+The mocks in `dev/` fake `hass` in the browser. `?lang=es` switches either mock to Spanish. In `player.html`,
+`?mq=1` fakes the `mass_queue` integration, and running `window.oldHA = true` in the console fakes a Home Assistant
+version without the full queue.
 
 ### Releasing
 
@@ -243,10 +230,11 @@ npm install
 3. The *Release* workflow (`.github/workflows/release.yml`) runs `npm run check` and attaches `ma-player-card.js`
    to the release. HACS downloads the file from there.
 
-The mocks in `dev/` fake `hass` in the browser. `?lang=es` switches either mock to Spanish. In `player.html`, `?mq=1` fakes the `mass_queue` integration, and
-running `window.oldHA = true` in the console fakes a Home Assistant version without the full queue.
+### How it works
 
 The cards, the queue, the lyrics and the slider are [Lit](https://lit.dev) components; Lit is bundled into the file.
+The cards never call `hass` directly: everything goes through `backend/`. The library and the player controls
+always use the official integration; the queue and favorites use `mass_queue` when it is installed (or forced with `backend:`).
 
 ```
 src/
@@ -278,11 +266,23 @@ src/
   utils/                  HTML escaping, formatting, ids, haptics
 test/                     tests (Vitest)
 dev/                      mocks for trying the cards in a browser
+docs/images/              screenshots for this README
 scripts/build.mjs         esbuild build
 ```
 
-The cards never call `hass` directly: everything goes through `backend/`. The library and the player controls
-always use the official integration; the queue and favorites use `mass_queue` when it is installed (or forced with `backend:`).
+Music Assistant actions the cards use:
+
+| Action | Used for | Key fields |
+|---|---|---|
+| `music_assistant.search` | Search | `config_entry_id`*, `name`*, `media_type` (`track`, `artist`, `album`, `playlist`, `radio`…), `limit` (default 5), `library_only` |
+| `music_assistant.get_library` | Home view: recently played and favorites | `config_entry_id`*, `media_type`*, `favorite`, `order_by`, `limit` (default 25) |
+| `music_assistant.play_media` | Play | target `entity_id`*, `media_id`* (URI), `media_type`, `enqueue` (`play`, `replace`, `next`, `replace_next`, `add`) |
+| `music_assistant.get_queue` | Queue (read-only) and favorite state | target `entity_id`*, `limit`, `offset` |
+| `media_player.*` | Controls | `media_play_pause`, `media_previous_track`, `media_next_track`, `media_seek`, `volume_set`, `shuffle_set`, `repeat_set` |
+| `button.press` | ♥ Favorite | The *Favorite current song* button Music Assistant adds to each player |
+| `mass_queue.*` (optional) | Edit the queue, remove a favorite | `get_queue_items`, `move_queue_item_up/down/next`, `remove_queue_item`, `play_queue_item`, `unfavorite_current_item` (an `entity` field, not a target) |
+
+`config_entry_id` is detected from the entity, or can be set in the YAML.
 
 ### Adding a language
 
