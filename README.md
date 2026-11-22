@@ -25,8 +25,8 @@ One file, `ma-player-card.js`, with two cards:
 | ![Synced lyrics](docs/images/lyrics.webp) | ![Queue](docs/images/queue.webp) |
 | **Search** | **Browser home** |
 | ![Search results](docs/images/search.webp) | ![Browser home with favorite artists and albums](docs/images/home.webp) |
-| **Speaker picker** | **Dashboard card (`layout: cover`)** |
-| ![Speaker picker](docs/images/speaker-picker.webp) | ![Player card with the cover layout](docs/images/cover-card.webp) |
+| **Speaker picker** | |
+| ![Speaker picker](docs/images/speaker-picker.webp) | |
 
 ## Installation
 
@@ -77,16 +77,27 @@ lyrics: true        # synced lyrics button
 | `debug` | `false` | Shows a panel with the position, backend and events, for troubleshooting |
 | `accent_color` and the browser options | | Passed on to the built-in browser |
 
-**On the dashboard**, with `layout: compact`, the card is a row with the artwork, title, artist, ⏮ ⏯ ⏭, 🔍 and a thin progress bar.
+### Dashboard layouts (`layout`)
+
+The `layout` option picks how the card looks on the dashboard. Both open the same *Now playing* view.
+
+**`compact`** (default): a single row with the artwork, title, artist, ⏮ ⏯ ⏭, 🔍 and a thin progress bar
+in the accent color. On narrow cards ⏮ is hidden to make room.
+
+![Player card with the compact layout](docs/images/compact-card.webp)
+
+**`cover`**: like Home Assistant's media control card. The title and artist go on top, ⏮ ⏯ ⏭ below, and 🔍 and
+*open player* in the bottom-right corner. The artwork sits on the right and fades into a background colored after it.
+
+- The text takes the most common artwork color that reads well on that background.
+- If the artwork can't be read (another server without CORS), the card keeps the theme's colors.
+- Text and buttons scale with the card's width.
 
 ![Player card with the cover layout](docs/images/cover-card.webp)
 
-With `layout: cover` it looks like Home Assistant's media control card: the title and artist on top, ⏮ ⏯ ⏭ below,
-🔍 and *open player* in the bottom-right corner, and the artwork on the right fading into a background colored after it.
-The text takes the most common artwork color that reads well on that background. If the artwork can't be read
-(another server without CORS), the card keeps the theme's colors.
+In both layouts, tapping the card when nothing is playing opens the browser.
 
-Either way, when nothing is playing, tapping it opens the browser.
+### Now playing
 
 **Tapping the artwork or title** opens *Now playing* full screen:
 
