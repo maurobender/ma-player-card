@@ -17,6 +17,7 @@ import { hassLanguage, type Translate, translator } from "../../i18n/index.js";
 import type { Hass, HassEntityState, RepeatMode } from "../../models/hass.js";
 import type { TrackInfo } from "../../services/lyrics/lrclib.js";
 import { PlaybackClock } from "../../services/playback-clock.js";
+import { QUEUE_EVENT, type QueueEventDetail } from "../../services/queue-events.js";
 import { TARGET_EVENT, Target, type TargetEventDetail } from "../../services/speaker-target.js";
 import { listSpeakers, speakerName } from "../../services/speakers.js";
 import { type ArtworkColors, artworkColors } from "../../utils/artwork-colors.js";
@@ -167,6 +168,7 @@ export class MaPlayerCard extends LitElement {
   connectedCallback(): void {
     super.connectedCallback();
     window.addEventListener(TARGET_EVENT, this.onTargetEvent);
+    window.addEventListener(QUEUE_EVENT, this.onQueueEvent);
     clearInterval(this.timer);
     this.timer = setInterval(() => this.tick(), 500);
   }
@@ -174,6 +176,7 @@ export class MaPlayerCard extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     window.removeEventListener(TARGET_EVENT, this.onTargetEvent);
+    window.removeEventListener(QUEUE_EVENT, this.onQueueEvent);
     clearInterval(this.timer);
     clearTimeout(this.queueTimer);
     clearTimeout(this.queueRecheckTimer);
@@ -184,6 +187,11 @@ export class MaPlayerCard extends LitElement {
   private onTargetEvent = (e: Event): void => {
     const { entity, target } = (e as CustomEvent<TargetEventDetail>).detail;
     if (entity === this.config?.entity) this.target = target;
+  };
+
+  private onQueueEvent = (e: Event): void => {
+    // With recheck: mass_queue answers with an empty or stale queue for a moment after a change
+    if ((e as CustomEvent<QueueEventDetail>).detail.entity === this.entity && this.npOpen) this.refreshQueue(true);
   };
 
   private get entity(): string {

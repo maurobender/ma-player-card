@@ -89,6 +89,13 @@
         return { response: { [d.entity]: Q.slice(d.offset, d.offset + d.limit).map((x) => ({ queue_item_id: x.id, media_title: x.name, media_artist: x.artist, media_album_name: "", media_image: x.img, favorite: x.fav })) } };
       }
       if (msg.type === "config/entity_registry/get") return { platform: "music_assistant", config_entry_id: "XYZ" };
+      // Songs added from the browser, with no state change, like Music Assistant
+      if (msg.service === "play_media" && ["next", "add"].includes(msg.service_data.enqueue)) {
+        const ids = [].concat(msg.service_data.media_id);
+        const added = ids.map((id, k) => ({ ...mkItem(100 + Q.length + k), name: "Agregada " + id }));
+        Q.splice(msg.service_data.enqueue === "next" ? CUR + 1 : Q.length, 0, ...added);
+        return {};
+      }
       if (msg.service === "get_library") return { response: { items: [] } };
       return {};
     },

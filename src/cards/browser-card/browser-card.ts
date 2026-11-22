@@ -29,6 +29,7 @@ import {
 } from "../../constants.js";
 import { hassLanguage, type Translate, translator } from "../../i18n/index.js";
 import type { Hass } from "../../models/hass.js";
+import { queueChanged } from "../../services/queue-events.js";
 import { TARGET_EVENT, Target, type TargetEventDetail } from "../../services/speaker-target.js";
 import { listSpeakers, speakerName } from "../../services/speakers.js";
 import { names } from "../../utils/format.js";
@@ -1095,6 +1096,7 @@ export class MaBrowserCard extends LitElement {
     this.setFx(key, "busy");
     try {
       await this.backend.library.play(this.targetEntity, { uri, mediaType: type }, enqueue);
+      queueChanged(this.targetEntity);
       this.setFx(key, "done", 1400);
       const msg =
         enqueue === "next"
