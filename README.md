@@ -25,8 +25,8 @@ One file, `ma-player-card.js`, with two cards:
 | ![Synced lyrics](docs/images/lyrics.webp) | ![Queue](docs/images/queue.webp) |
 | **Search** | **Browser home** |
 | ![Search results](docs/images/search.webp) | ![Browser home with favorite artists and albums](docs/images/home.webp) |
-| **Speaker picker** | |
-| ![Speaker picker](docs/images/speaker-picker.webp) | |
+| **Speaker picker** | **Dashboard card (`layout: cover`)** |
+| ![Speaker picker](docs/images/speaker-picker.webp) | ![Player card with the cover layout](docs/images/cover-card.webp) |
 
 ## Installation
 
@@ -59,6 +59,7 @@ Companion app cache resources aggressively. The console (F12) shows the loaded v
 type: custom:ma-player-card
 entity: media_player.living_room
 # Every browser option (media_types, home, speakers, accent_color, columns…) works here too
+layout: compact     # compact | cover
 queue_limit: 50     # queue songs shown
 lyrics: true        # synced lyrics button
 # backend: auto     # auto | native | mass_queue
@@ -67,6 +68,7 @@ lyrics: true        # synced lyrics button
 | Option | Default | Description |
 |---|---|---|
 | `entity` | — (required) | Default speaker |
+| `layout` | `compact` | The card on the dashboard: `compact` (one row) or `cover` (big, colored after the artwork) |
 | `queue_limit` | `50` | Upcoming songs shown in the queue |
 | `lyrics` | `true` | Shows the lyrics button |
 | `lyrics_offset` | `0.6` | Seconds the lyrics run ahead of the audio. Raise it if lyrics lag; lower it (or go negative) if they run early |
@@ -75,8 +77,16 @@ lyrics: true        # synced lyrics button
 | `debug` | `false` | Shows a panel with the position, backend and events, for troubleshooting |
 | `accent_color` and the browser options | | Passed on to the built-in browser |
 
-**On the dashboard** the card is a row with the artwork, title, artist, ⏮ ⏯ ⏭, 🔍 and a thin progress bar.
-When nothing is playing, tapping it opens the browser.
+**On the dashboard**, with `layout: compact`, the card is a row with the artwork, title, artist, ⏮ ⏯ ⏭, 🔍 and a thin progress bar.
+
+![Player card with the cover layout](docs/images/cover-card.webp)
+
+With `layout: cover` it looks like Home Assistant's media control card: the title and artist on top, ⏮ ⏯ ⏭ below,
+🔍 and *open player* in the bottom-right corner, and the artwork on the right fading into a background colored after it.
+The text takes the most common artwork color that reads well on that background. If the artwork can't be read
+(another server without CORS), the card keeps the theme's colors.
+
+Either way, when nothing is playing, tapping it opens the browser.
 
 **Tapping the artwork or title** opens *Now playing* full screen:
 

@@ -18,6 +18,7 @@ import type { TrackInfo } from "../../services/lyrics/lrclib.js";
 import { PlaybackClock } from "../../services/playback-clock.js";
 import { TARGET_EVENT, Target, type TargetEventDetail } from "../../services/speaker-target.js";
 import { listSpeakers, speakerName } from "../../services/speakers.js";
+import { type ArtworkColors, artworkColors } from "../../utils/artwork-colors.js";
 import { fmtTime } from "../../utils/format.js";
 import { haptic } from "../../utils/haptic.js";
 import { nextInstanceId } from "../../utils/ids.js";
@@ -33,6 +34,8 @@ export interface PlayerConfig extends BrowserConfigInput {
   lyrics: boolean;
   lyrics_url: string;
   lyrics_offset?: number;
+  /** The card on the dashboard: "compact" (one row) or "cover" (artwork background, like HA's media control card). */
+  layout: "compact" | "cover";
   debug?: boolean;
 }
 
@@ -69,6 +72,7 @@ export class MaPlayerCard extends LitElement {
     mute: { state: true },
     optimistic: { state: true },
     brokenImages: { state: true },
+    colors: { state: true },
   };
 
   declare hass?: Hass;
@@ -86,6 +90,8 @@ export class MaPlayerCard extends LitElement {
   declare mute: { muted: boolean; at: number } | null;
   declare optimistic: { playing: boolean; at: number } | null;
   declare brokenImages: ReadonlySet<string>;
+  /** Colors of the current artwork ("cover" layout); null when there are none. */
+  declare colors: ArtworkColors | null;
 
   private readonly instanceId = `ma-player-${nextInstanceId()}`;
   private readonly backends = new BackendHolder(() => this.hass as Hass);
@@ -106,6 +112,7 @@ export class MaPlayerCard extends LitElement {
   private debugQueue?: { elapsed?: number; error?: string; at: number };
   private debugPollAt = 0;
   private debugBusy = false;
+  private colorsUrl = "";
 
   static styles = [browserStyles, playerStyles];
 
@@ -121,11 +128,21 @@ export class MaPlayerCard extends LitElement {
     this.mute = null;
     this.optimistic = null;
     this.brokenImages = new Set();
+    this.colors = null;
   }
 
   setConfig(config: Partial<PlayerConfig>): void {
     if (!config?.entity) throw new Error("Missing 'entity' (a Music Assistant media_player)");
-    this.config = { queue_limit: 50, lyrics: true, lyrics_url: "https://lrclib.net", ...config, entity: config.entity };
+    if (config.layout && config.layout !== "compact" && config.layout !== "cover")
+      throw new Error("layout must be 'compact' or 'cover'");
+    this.config = {
+      queue_limit: 50,
+      lyrics: true,
+      lyrics_url: "https://lrclib.net",
+      layout: "compact",
+      ...config,
+      entity: config.entity,
+    };
     this.target = Target.load(this.config.entity);
   }
 
@@ -210,7 +227,25 @@ export class MaPlayerCard extends LitElement {
         this.t = translator(lang);
       }
     }
-    if (changed.has("hass") || changed.has("target")) this.syncState();
+    if (changed.has("hass") || changed.has("target")) {
+      this.syncState();
+      if (this.config.layout === "cover") this.syncColors();
+    }
+  }
+
+  private syncColors(): void {
+    const st = this.state;
+    const url = st?.attributes.media_title ? picture(st) : "";
+    if (url === this.colorsUrl) return;
+    this.colorsUrl = url;
+    if (!url) {
+      this.colors = null;
+      return;
+    }
+    // The previous colors stay until the new ones are ready, so the card fades instead of flashing
+    artworkColors(url).then((colors) => {
+      if (this.colorsUrl === url) this.colors = colors;
+    });
   }
 
   /** Runs on every new state, even when nothing visible changed. */
@@ -251,7 +286,7 @@ export class MaPlayerCard extends LitElement {
 
   private browserConfig(): BrowserConfigInput {
     // The embedded browser shares the card's options (media_types, home, speakers…)
-    const { type, queue_limit, lyrics, lyrics_url, lyrics_offset, debug, name, ...rest } = this.config as PlayerConfig;
+    const { type, queue_limit, lyrics, lyrics_url, lyrics_offset, layout, debug, name, ...rest } = this.config as PlayerConfig;
     return { ...rest, mode: "overlay" };
   }
 
@@ -305,15 +340,27 @@ export class MaPlayerCard extends LitElement {
       ? { title: a.media_title as string, artist: a.media_artist, album: a.media_album_name, duration: a.media_duration }
       : null;
 
-    return html`
-      <ha-card class="mini ${has ? "" : "idle"}">
+    const open = () => (has ? this.openNowPlaying() : this.browser?.open());
+    const sub = has ? [a.media_artist, a.media_album_name].filter(Boolean).join(" · ") : t("player.tap_to_search", { name });
+    const dashboard =
+      c.layout === "cover"
+        ? this.renderCover({
+            has,
+            pic,
+            playIcon,
+            ratio,
+            open,
+            title: has ? String(a.media_title) : t(unavailable ? "player.unavailable" : "player.nothing_playing"),
+            sub: has ? String(a.media_artist || "") : sub,
+          })
+        : html`      <ha-card class="mini ${has ? "" : "idle"}">
         <div class="mini-row">
-          <button class="mini-main" aria-label=${t("player.open")} @click=${() => (has ? this.openNowPlaying() : this.browser?.open())}>
+          <button class="mini-main" aria-label=${t("player.open")} @click=${open}>
             <span class="mini-art">${this.renderArt(has ? pic : "")}</span>
             <span class="mini-text">
               <span class="mini-title">${has ? a.media_title : t(unavailable ? "player.unavailable" : "player.nothing_playing")}</span>
               <span class="mini-sub">
-                ${has ? [a.media_artist, a.media_album_name].filter(Boolean).join(" · ") : t("player.tap_to_search", { name })}
+                ${sub}
               </span>
             </span>
           </button>
@@ -325,7 +372,10 @@ export class MaPlayerCard extends LitElement {
           </div>
         </div>
         <div class="mini-progress"><div class="fill" style="width: ${ratio * 100}%"></div></div>
-      </ha-card>
+      </ha-card>`;
+
+    return html`
+      ${dashboard}
 
       <dialog class="np" @close=${this.onNowPlayingClosed}>
         <div class="np-bg" style=${pic ? `background-image: url("${pic.replace(/"/g, "%22")}")` : ""}></div>
@@ -434,6 +484,48 @@ export class MaPlayerCard extends LitElement {
       <ma-player-action-sheet dark></ma-player-action-sheet>
       <ma-player-toast dark></ma-player-toast>
     `;
+  }
+
+  /** The "cover" layout: title, artist and controls over the artwork's colors, the artwork fading in on the right. */
+  private renderCover(p: {
+    has: boolean;
+    pic: string;
+    playIcon: string;
+    ratio: number;
+    open: () => void;
+    title: string;
+    sub: string;
+  }) {
+    const { t } = this;
+    const colors = this.colors;
+    const art = p.has && p.pic && !this.brokenImages.has(p.pic) ? p.pic : "";
+    const vars = colors ? `--cover-bg: ${colors.background}; --cover-fg: ${colors.foreground};` : "";
+    return html`<ha-card class="cover ${p.has ? "" : "idle"} ${art ? "has-art" : ""}" style=${vars}>
+      ${art ? html`<div class="cover-art" style=${`background-image: url("${art.replace(/"/g, "%22")}")`}></div>` : nothing}
+      <button class="cover-main" aria-label=${t("player.open")} @click=${p.open}>
+        <span class="cover-title">${p.title}</span>
+        ${p.sub ? html`<span class="cover-sub">${p.sub}</span>` : nothing}
+      </button>
+      <div class="cover-ctrls">
+        ${
+          p.has
+            ? html`${this.renderCmd("cb", "prev", t("player.previous"), "mdi:skip-previous")}
+              ${this.renderCmd("cb play", "playpause", t("player.play_pause"), p.playIcon)}
+              ${this.renderCmd("cb", "next", t("player.next"), "mdi:skip-next")}`
+            : nothing
+        }
+        <span class="cover-spacer"></span>
+        ${this.renderCmd("cb small", "search", t("browser.launcher"), "mdi:magnify")}
+        ${
+          p.has
+            ? html`<button class="cb small" aria-label=${t("player.open")} @click=${p.open}>
+              <ha-icon icon="mdi:arrow-expand"></ha-icon>
+            </button>`
+            : nothing
+        }
+      </div>
+      ${p.has ? html`<div class="cover-progress"><div class="fill" style="width: ${p.ratio * 100}%"></div></div>` : nothing}
+    </ha-card>`;
   }
 
   private renderArt(url: string) {

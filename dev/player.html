@@ -87,6 +87,6 @@
   document.getElementById("host").appendChild(card);
   function push() { card.hass = { ...hass, states: { ...hass.states } }; }
   window.push = push;
-  import("./build/ma-player-card.js").then(() => { card.setConfig({ entity: "media_player.salon", debug: true }); push(); });
+  import("./build/ma-player-card.js").then(() => { card.setConfig({ entity: "media_player.salon", debug: true, layout: new URLSearchParams(location.search).get("layout") || "compact" }); push(); });
 </script>
 </body></html>

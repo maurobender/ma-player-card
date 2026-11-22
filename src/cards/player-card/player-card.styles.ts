@@ -31,6 +31,42 @@ export const playerStyles = css`
   .mini-progress .fill { height: 100%; width: 0; background: var(--accent); transition: width .5s linear; }
   @container (max-width: 400px) { .mini .prev { display: none; } }
 
+  /* "cover" layout: like HA's media control card, colored after the artwork. Sizes follow the card's width. */
+  .cover { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;
+    box-sizing: border-box; container-type: inline-size;
+    --cover-bg: var(--ha-card-background, var(--card-background-color, #fff)); --cover-fg: var(--primary-text-color);
+    background: var(--cover-bg); color: var(--cover-fg); transition: background-color .6s, color .6s; }
+  .cover-art { position: absolute; top: 0; right: 0; bottom: 0; aspect-ratio: 1; max-width: 65%;
+    background: center / cover no-repeat; }
+  /* Fades the artwork into the background color from its left edge */
+  .cover-art::after { content: ""; position: absolute; inset: 0;
+    background: linear-gradient(to right, var(--cover-bg), color-mix(in srgb, var(--cover-bg) 0%, transparent) 65%); }
+  .cover-main { all: unset; position: relative; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px;
+    padding: clamp(12px, 3cqw, 16px) clamp(14px, 3.5cqw, 18px) 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .cover-main:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; border-radius: 12px; }
+  .cover-title { font-size: clamp(16px, 3.8cqw, 20px); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cover-sub { font-size: clamp(13px, 3cqw, 16px); line-height: 1.3; opacity: .9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cover.has-art .cover-main { padding-right: 30%; }
+  .cover-ctrls { position: relative; display: flex; align-items: center; padding: 2px clamp(6px, 1.6cqw, 10px) clamp(8px, 2cqw, 12px);
+    --cb: clamp(36px, 8.5cqw, 44px); }
+  .cover-spacer { flex: 1; }
+  .cb { width: var(--cb); height: var(--cb); border: 0; border-radius: 50%; padding: 0; display: grid; place-items: center;
+    background: transparent; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform .1s; }
+  .cb:active { transform: scale(.88); }
+  .cb:focus { outline: none; }
+  .cb:focus-visible { background: color-mix(in srgb, currentColor 15%, transparent); }
+  .cb ha-icon { --mdc-icon-size: calc(var(--cb) * .72); }
+  .cb.play { --cb: clamp(44px, 10.5cqw, 54px); }
+  .cb.play ha-icon { --mdc-icon-size: calc(var(--cb) * .85); }
+  .cb.small ha-icon { --mdc-icon-size: calc(var(--cb) * .58); }
+  /* They sit over the artwork: a translucent disc of the background color keeps them readable on light covers */
+  .cb.small { margin-left: 8px; background: color-mix(in srgb, var(--cover-bg) 55%, transparent);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  .cb.small:focus-visible { background: color-mix(in srgb, var(--cover-bg) 80%, transparent); }
+  .cover-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+    background: color-mix(in srgb, var(--cover-fg) 20%, transparent); }
+  .cover-progress .fill { height: 100%; width: 0; background: var(--cover-fg); transition: width .5s linear; }
+
   /* "Now playing" (full screen) */
   dialog.np { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none;
     margin: 0; padding: 0; border: 0; overflow: hidden; background: #1c1c1e; color: #fff;
