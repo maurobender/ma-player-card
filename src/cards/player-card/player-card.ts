@@ -105,6 +105,9 @@ export class MaPlayerCard extends LitElement {
   private browserConfigured?: PlayerConfig;
   private timer?: ReturnType<typeof setInterval>;
   private queueTimer?: ReturnType<typeof setTimeout>;
+  private queueRecheckTimer?: ReturnType<typeof setTimeout>;
+  /** Entity and shuffle state the queue was last loaded for: shuffling reorders it without changing the song. */
+  private shuffleKey = "";
   private volumeTimer?: ReturnType<typeof setTimeout>;
   /** The volume to go back to, per player, when the player can't mute and muting set it to 0. */
   private unmuteLevels = new Map<string, number>();
@@ -170,6 +173,7 @@ export class MaPlayerCard extends LitElement {
     window.removeEventListener(TARGET_EVENT, this.onTargetEvent);
     clearInterval(this.timer);
     clearTimeout(this.queueTimer);
+    clearTimeout(this.queueRecheckTimer);
     clearTimeout(this.volumeTimer);
     this.overlay?.close();
   }
@@ -271,6 +275,12 @@ export class MaPlayerCard extends LitElement {
       this.trackKey = key;
       this.fav = null;
       if (this.npOpen) this.refreshQueue();
+    }
+    const shuffleKey = `${this.entity}|${!!a.shuffle}`;
+    if (shuffleKey !== this.shuffleKey) {
+      const toggled = this.shuffleKey.startsWith(`${this.entity}|`);
+      this.shuffleKey = shuffleKey;
+      if (toggled && this.npOpen) this.refreshQueue(true);
     }
   }
 
@@ -572,9 +582,14 @@ export class MaPlayerCard extends LitElement {
   };
 
   /** Delayed: a player usually sends several state changes in a row. */
-  private refreshQueue(): void {
+  private refreshQueue(recheck = false): void {
     clearTimeout(this.queueTimer);
     this.queueTimer = setTimeout(() => this.queueEl?.refresh(this.view === "queue"), 400);
+    // mass_queue can still answer with the old order right after a reorder, until it reloads its cache
+    if (recheck) {
+      clearTimeout(this.queueRecheckTimer);
+      this.queueRecheckTimer = setTimeout(() => this.queueEl?.refresh(this.view === "queue"), 2500);
+    }
   }
 
   private setView(view: View): void {
