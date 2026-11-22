@@ -278,6 +278,66 @@ describe("fromBrowseMedia", () => {
   });
 });
 
+describe("artist pages", () => {
+  it("adds the artist's songs and the providers' albums to what the media browser lists", async () => {
+    const hass = fakeHass({
+      onWs: (msg) => {
+        if (msg.type === "media_player/browse_media")
+          return {
+            title: "Soda Stereo",
+            media_class: "artist",
+            media_content_id: msg.media_content_id,
+            children: [{ title: "Soda Stereo - Signos", media_class: "album", media_content_id: "library://album/1" }],
+          };
+        const type = (msg.service_data as { media_type: string }).media_type;
+        const by = (name: string, artist: string, i: number) => ({
+          uri: `spotify://${type}/${i}`,
+          name,
+          artists: [{ name: artist }],
+        });
+        return {
+          response: {
+            [`${type}s`]: [
+              by("Signos", "Soda Stereo", 1),
+              by("Persiana americana", "soda stereo ", 2),
+              by("Persiana americana", "Soda Stereo", 3),
+              by("Tributo", "Otra banda", 4),
+            ],
+          },
+        };
+      },
+    });
+    const items = await new NativeLibrary(() => hass, ENT, "E1").browse(ENT, {
+      uri: "library://artist/9",
+      mediaType: "artist",
+      name: "Soda Stereo",
+    });
+    expect(items.map((it) => `${it.media_type} ${it.name}`)).toEqual([
+      "track Signos",
+      "track Persiana americana",
+      "album Signos",
+      "album Persiana americana",
+    ]);
+  });
+
+  it("still shows the albums when the search fails", async () => {
+    const hass = fakeHass({
+      onWs: (msg) => {
+        if (msg.type !== "media_player/browse_media") throw new Error("search down");
+        return {
+          title: "x",
+          media_class: "artist",
+          media_content_id: "a",
+          children: [{ title: "A - B", media_class: "album", media_content_id: "b" }],
+        };
+      },
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const items = await new NativeLibrary(() => hass, ENT, "E1").browse(ENT, { uri: "a", mediaType: "artist", name: "A" });
+    expect(items.map((it) => it.uri)).toEqual(["b"]);
+  });
+});
+
 describe("clearing the queue", () => {
   it("uses clear_playlist on the official integration and clear_queue_from_here with mass_queue", async () => {
     const hass = fakeHass({ services: { mass_queue: {} } });

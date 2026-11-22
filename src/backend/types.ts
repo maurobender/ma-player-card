@@ -68,13 +68,20 @@ export interface LibraryQuery {
   orderBy?: string;
 }
 
+export interface BrowseTarget {
+  uri: string;
+  mediaType: MediaType;
+  /** Name of the item, used to search for an artist's songs. */
+  name?: string;
+}
+
 export interface LibraryApi {
   search(query: string, type: MediaType, options: SearchOptions): Promise<MaMediaItem[]>;
   getLibrary(query: LibraryQuery): Promise<MaMediaItem[]>;
   /** Whether `browse` can list what's inside items of this type. */
   canBrowse(type: MediaType): boolean;
-  /** The tracks of an album or playlist, the albums of an artist, or the episodes of a podcast. */
-  browse(entity: string, item: { uri: string; mediaType: MediaType }): Promise<MaMediaItem[]>;
+  /** The tracks of an album or playlist, the songs and albums of an artist, or the episodes of a podcast. */
+  browse(entity: string, item: BrowseTarget): Promise<MaMediaItem[]>;
   /** Several URIs play in order, e.g. an album from one of its tracks. */
   play(entity: string, item: { uri: string | string[]; mediaType: MediaType }, enqueue: Enqueue): Promise<void>;
 }

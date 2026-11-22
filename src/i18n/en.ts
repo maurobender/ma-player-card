@@ -49,6 +49,7 @@ export const en = {
   "browser.shuffle": "Shuffle",
   "browser.songs": "{n} songs",
   "browser.episodes": "{n} episodes",
+  "browser.songs_title": "Songs",
   "browser.albums": "Albums",
   "browser.page_empty": "Nothing here",
   "browser.play_now": "Play now",

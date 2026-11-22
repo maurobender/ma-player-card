@@ -51,6 +51,7 @@ export const es: Translations = {
   "browser.shuffle": "Aleatorio",
   "browser.songs": "{n} canciones",
   "browser.episodes": "{n} episodios",
+  "browser.songs_title": "Canciones",
   "browser.albums": "Álbumes",
   "browser.page_empty": "No hay nada acá",
   "browser.play_now": "Reproducir ahora",

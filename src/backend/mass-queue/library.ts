@@ -1,7 +1,7 @@
 import type { HassGetter } from "../../models/hass.js";
 import { callWithResponse } from "../call.js";
 import type { NativeLibrary } from "../native/library.js";
-import type { Enqueue, LibraryApi, LibraryQuery, MaMediaItem, MediaType, SearchOptions } from "../types.js";
+import type { BrowseTarget, Enqueue, LibraryApi, LibraryQuery, MaMediaItem, MediaType, SearchOptions } from "../types.js";
 
 /** mass_queue.get_podcast_episodes item. */
 export interface MassQueueEpisode {
@@ -50,7 +50,7 @@ export class MassQueueLibrary implements LibraryApi {
     return type === "podcast" || this.native.canBrowse(type);
   }
 
-  async browse(entity: string, item: { uri: string; mediaType: MediaType }): Promise<MaMediaItem[]> {
+  async browse(entity: string, item: BrowseTarget): Promise<MaMediaItem[]> {
     if (item.mediaType !== "podcast") return this.native.browse(entity, item);
     const r = await callWithResponse<{ episodes?: MassQueueEpisode[] }>(this.hass(), "mass_queue", "get_podcast_episodes", {
       config_entry_id: await this.entryId(),

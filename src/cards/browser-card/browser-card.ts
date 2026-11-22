@@ -74,7 +74,7 @@ interface Page {
   item: MaMediaItem;
   type: MediaType;
   status: "loading" | "ok" | "error";
-  /** Tracks of an album or playlist, albums of an artist. */
+  /** Tracks of an album or playlist, songs then albums of an artist. */
   items: MaMediaItem[];
   error: string;
   /** Scroll position of the view below, restored when going back. */
@@ -590,8 +590,22 @@ export class MaBrowserCard extends LitElement {
     }
     if (!page.items.length) return this.renderState("mdi:music-off", t("browser.page_empty"), "");
     if (artist) {
-      return html`<h2 class="shelf-title">${t("browser.albums")}</h2>
-        <div class="grid">${page.items.map((it, i) => this.renderTile(it, i, "p"))}</div>`;
+      // Indexes stay those of page.items, which is what a tap looks up
+      const indexed = page.items.map((it, i) => ({ it, i }));
+      const tracks = indexed.filter(({ it }) => this.typeOf(it) === "track");
+      const albums = indexed.filter(({ it }) => this.typeOf(it) !== "track");
+      return html`${
+        tracks.length
+          ? html`<h2 class="shelf-title">${t("browser.songs_title")}</h2>
+              <div class="list">${tracks.map(({ it, i }) => this.renderRow(it, i, "p"))}</div>`
+          : nothing
+      }
+        ${
+          albums.length
+            ? html`<h2 class="shelf-title">${t("browser.albums")}</h2>
+                <div class="grid">${albums.map(({ it, i }) => this.renderTile(it, i, "p"))}</div>`
+            : nothing
+        }`;
     }
     if (page.type === "playlist") return html`<div class="list">${page.items.map((it, i) => this.renderRow(it, i, "p"))}</div>`;
     if (page.type === "podcast")
@@ -934,7 +948,11 @@ export class MaBrowserCard extends LitElement {
     Object.assign(page, { status: "loading", error: "" });
     this.requestUpdate();
     try {
-      const items = await this.backend.library.browse(c.entity, { uri: page.item.uri, mediaType: page.type });
+      const items = await this.backend.library.browse(c.entity, {
+        uri: page.item.uri,
+        mediaType: page.type,
+        name: page.item.name,
+      });
       this.pageCache.set(page.item.uri, items);
       Object.assign(page, { items, status: "ok" });
     } catch (err) {
@@ -1062,10 +1080,13 @@ export class MaBrowserCard extends LitElement {
     const type = this.typeOf(it);
     let enqueue = enqueueOverride || TYPES[type].enqueue;
     let uri: string | string[] = it.uri;
-    // A song tapped inside an album or playlist plays the rest of it too
+    // A song tapped inside an album, playlist or artist plays the songs after it too
     const page = this.page;
     if (s === "p" && !enqueueOverride && type === "track" && page) {
-      uri = page.items.slice(i).map((x) => x.uri);
+      uri = page.items
+        .slice(i)
+        .filter((x) => this.typeOf(x) === "track")
+        .map((x) => x.uri);
       enqueue = "replace";
     }
     const key = this.itemKey(s, it);

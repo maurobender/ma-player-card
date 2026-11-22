@@ -1,7 +1,7 @@
 import { TYPES } from "../../constants.js";
 import type { HassGetter } from "../../models/hass.js";
 import { callWithResponse } from "../call.js";
-import type { Enqueue, LibraryApi, LibraryQuery, MaMediaItem, MediaType, SearchOptions } from "../types.js";
+import type { BrowseTarget, Enqueue, LibraryApi, LibraryQuery, MaMediaItem, MediaType, SearchOptions } from "../types.js";
 
 interface BrowseMedia {
   title: string;
@@ -22,6 +22,23 @@ export function fromBrowseMedia(b: BrowseMedia): MaMediaItem {
     image: b.thumbnail || null,
     artists: artist ? [{ name: artist }] : [],
   };
+}
+
+/** Songs shown on an artist's page. */
+const ARTIST_TRACKS = 10;
+const ARTIST_SEARCH_LIMIT = 50;
+
+const normalize = (s: string | undefined): string => (s || "").trim().toLocaleLowerCase();
+
+/** Providers repeat the same song or album; the first one wins. */
+function uniqueByName(items: MaMediaItem[]): MaMediaItem[] {
+  const seen = new Set<string>();
+  return items.filter((it) => {
+    const key = `${it.media_type}|${normalize(it.name)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // Shared by every card on the page.
@@ -62,14 +79,37 @@ export class NativeLibrary implements LibraryApi {
   }
 
   // Home Assistant's media browser is the only way the official integration lists what's inside an item
-  async browse(entity: string, { uri, mediaType }: { uri: string; mediaType: MediaType }): Promise<MaMediaItem[]> {
-    const res = await this.hass().callWS<BrowseMedia>({
+  async browse(entity: string, { uri, mediaType, name }: BrowseTarget): Promise<MaMediaItem[]> {
+    const listing = this.hass().callWS<BrowseMedia>({
       type: "media_player/browse_media",
       entity_id: entity,
       media_content_id: uri,
       media_content_type: mediaType,
     });
-    return (res.children || []).map(fromBrowseMedia);
+    if (mediaType !== "artist") return ((await listing).children || []).map(fromBrowseMedia);
+    // For an artist in the library, Music Assistant only lists the albums that are in the library too,
+    // so a search fills in their songs and the albums the providers have.
+    const [res, tracks, albums] = await Promise.all([
+      listing,
+      name ? this.searchByArtist(name, "track") : [],
+      name ? this.searchByArtist(name, "album") : [],
+    ]);
+    const listed = (res.children || []).map(fromBrowseMedia);
+    return [...uniqueByName(tracks).slice(0, ARTIST_TRACKS), ...uniqueByName([...listed, ...albums])];
+  }
+
+  /** Search results credited to the artist; a failed search only leaves the page shorter. */
+  private async searchByArtist(artist: string, type: MediaType): Promise<MaMediaItem[]> {
+    const wanted = normalize(artist);
+    try {
+      const found = await this.search(artist, type, { limit: ARTIST_SEARCH_LIMIT });
+      return found
+        .filter((it) => (it.artists || []).some((a) => normalize(a.name) === wanted))
+        .map((it) => ({ ...it, media_type: it.media_type || type }));
+    } catch (err) {
+      console.warn("[ma-player-card] artist search", err);
+      return [];
+    }
   }
 
   async play(entity: string, item: { uri: string | string[]; mediaType: MediaType }, enqueue: Enqueue): Promise<void> {

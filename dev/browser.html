@@ -45,7 +45,7 @@
         if (q === "nada") return { response: { tracks: [], artists: [] } };
         const mk = (t, i) => ({ media_type: t, uri: `spotify://${t}/${i}`, name: `${q} ${t} ${i}`,
           image: i === 2 ? "https://invalid.example/x.jpg" : img(t + i),
-          artists: [{ name: "Queen" }], album: { name: "A Night at the Opera" } });
+          artists: [{ name: / artist \d$/.test(q) ? q : "Queen" }], album: { name: "A Night at the Opera" } });
         const key = { track: "tracks", artist: "artists", album: "albums", playlist: "playlists", radio: "radio", podcast: "podcasts" }[msg.service_data.media_type];
         return { response: { [key]: Array.from({ length: 10 }, (_, i) => mk(msg.service_data.media_type, i)) } };
       }
@@ -56,8 +56,9 @@
       if (msg.type === "media_player/browse_media") {
         const id = msg.media_content_id;
         if (id.includes("/9")) throw { code: "x", message: "Browse falló" };
+        // artist 1 is in the library without any of its albums, like Music Assistant returns it
         if (msg.media_content_type === "artist")
-          return { title: "x", media_class: "artist", media_content_id: id, children: Array.from({ length: 6 }, (_, i) =>
+          return { title: "x", media_class: "artist", media_content_id: id, children: id.endsWith("/1") ? [] : Array.from({ length: 6 }, (_, i) =>
             ({ title: `Queen - Album ${i}`, media_class: "album", media_content_id: `library://album/a${i}`, thumbnail: img("al" + i) })) };
         return { title: "x", media_class: msg.media_content_type, media_content_id: id, children: Array.from({ length: 12 }, (_, i) =>
           ({ title: `${i === 3 ? "Freddie Mercury" : "Queen"} - Song ${i + 1}`, media_class: "track", media_content_id: `library://track/t${i}`, thumbnail: img("t" + i) })) };
