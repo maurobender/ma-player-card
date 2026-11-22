@@ -123,6 +123,7 @@ The card talks to Music Assistant through a *backend*. The interface stays the s
 | Tap a song to jump to it | — | ✓ |
 | Drag ≡ to reorder | — | ✓ |
 | Remove from the queue (⊖) | — | ✓ |
+| Open a podcast and list its episodes | — (tapping it plays it) | ✓ |
 | *Clear* the queue (tap twice) | ✓ empties the whole queue and stops playback | ✓ removes the upcoming songs, the current one keeps playing |
 | ♥ add to favorites | ✓ | ✓ |
 | ♥ remove from favorites | — | ✓ (library songs only) |
@@ -147,7 +148,7 @@ entity: media_player.living_room
 mode: compact      # compact = a button that opens the browser full screen | inline = the browser inside the dashboard
 name: Search music
 accent_color: "#fa2d48"   # Apple Music red; "theme" uses the theme's primary color
-media_types: [track, artist, album, playlist, radio]   # visible tabs, in order
+media_types: [track, artist, album, playlist, radio, podcast]   # visible tabs, in order
 limit: 20          # results per search
 columns: 4         # grid columns (automatic on phones)
 library_only: false   # true = search only your library
@@ -163,7 +164,7 @@ speaker_selector: true   # button to choose which speaker plays
 | `mode` | `compact` | `compact`: a button that opens the browser full screen. `inline`: the browser inside the dashboard |
 | `name` | *Search music* (translated) | Button text in `compact` mode |
 | `accent_color` | `#fa2d48` | Accent color. `theme` uses the theme's `--primary-color` |
-| `media_types` | `[track, artist, album, playlist, radio]` | Tabs, in order. `podcast` and `audiobook` are also available |
+| `media_types` | `[track, artist, album, playlist, radio, podcast]` | Tabs, in order. `audiobook` is also available |
 | `limit` | `20` | Results per search |
 | `columns` | auto | Maximum columns; fewer on narrow screens |
 | `library_only` | `false` | Search only the library |
@@ -178,10 +179,12 @@ speaker_selector: true   # button to choose which speaker plays
 - **Tap the button** to open the browser full screen. With an empty search it shows your recently played items and favorites. Close it with ✕, *Esc* or Android's *back* button.
 - **Type** in the search field: it searches on its own after 350 ms, or when you press *Enter*. The media type tabs (songs, artists, …) appear once there is something to search.
 - **Songs** are shown as a list (1–3 columns depending on the width); everything else as an artwork grid.
-- **Tap a song or a radio** to play it right away on the speaker.
+- **Tap a song, a radio or a podcast** to play it right away on the speaker (with `mass_queue`, podcasts open instead; see below).
   - Songs → `enqueue: play` (plays now, keeps the queue).
   - Radio → `enqueue: replace` (replaces the queue).
 - **Tap an artist, album or playlist** to open it: an album or playlist lists its songs, an artist lists its albums.
+  With `mass_queue` installed, podcasts open too and list their episodes, newest first, with date and length;
+  tapping an episode plays it.
   - *Play* and *Shuffle* replace the queue with the whole item, turning the speaker's shuffle off or on first.
   - Tapping a song plays it and the rest of the album or playlist after it.
   - *Back* (the button at the top or Android's *back*) goes up one level.
@@ -309,7 +312,7 @@ Music Assistant actions the cards use:
 | `music_assistant.get_queue` | Queue (read-only) and favorite state | target `entity_id`*, `limit`, `offset` |
 | `media_player.*` | Controls | `media_play_pause`, `media_previous_track`, `media_next_track`, `media_seek`, `volume_set`, `volume_mute`, `shuffle_set`, `repeat_set`, `clear_playlist` |
 | `button.press` | ♥ Favorite | The *Favorite current song* button Music Assistant adds to each player |
-| `mass_queue.*` (optional) | Edit the queue, remove a favorite | `get_queue_items`, `move_queue_item_up/down/next`, `remove_queue_item`, `play_queue_item`, `clear_queue_from_here`, `unfavorite_current_item` (an `entity` field, not a target) |
+| `mass_queue.*` (optional) | Edit the queue, remove a favorite, podcast episodes | `get_queue_items`, `move_queue_item_up/down/next`, `remove_queue_item`, `play_queue_item`, `clear_queue_from_here`, `unfavorite_current_item` (an `entity` field, not a target), `get_podcast_episodes` (`config_entry_id` of mass_queue and the podcast `uri`) |
 
 `config_entry_id` is detected from the entity, or can be set in the YAML.
 

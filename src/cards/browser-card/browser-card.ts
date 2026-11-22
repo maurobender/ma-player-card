@@ -88,8 +88,6 @@ interface Found {
   i: number;
 }
 
-const EXPANDABLE = new Set<MediaType>(["artist", "album", "playlist"]);
-
 interface Layout {
   cols: number;
   listCols: number;
@@ -108,6 +106,14 @@ export function gridLayout(w: number, configured?: number): Layout {
   return { cols, listCols, shelfW: Math.floor((w - 14 * n) / (n + 0.35)) };
 }
 
+/** Episode length: "45 min", "1 h 5 min". */
+export function fmtLength(secs: number): string {
+  const min = Math.round(secs / 60);
+  if (min <= 0) return "";
+  const h = Math.floor(min / 60);
+  return h ? `${h} h${min % 60 ? ` ${min % 60} min` : ""}` : `${min} min`;
+}
+
 export function subtitle(it: MaMediaItem, type: MediaType): string {
   const artists = names(it.artists);
   switch (type) {
@@ -119,6 +125,8 @@ export function subtitle(it: MaMediaItem, type: MediaType): string {
       return it.owner || "Playlist";
     case "radio":
       return "Radio";
+    case "podcast":
+      return "Podcast";
     case "artist":
       return "";
     default:
@@ -207,7 +215,7 @@ export class MaBrowserCard extends LitElement {
 
   setConfig(input: BrowserConfigInput): void {
     if (!input?.entity) throw new Error("Missing 'entity' (a Music Assistant media_player)");
-    const types = (input.media_types || DEFAULT_TYPES).filter(isMediaType);
+    const types = (input.media_types || DEFAULT_TYPES).filter((x): x is MediaType => isMediaType(x) && !TYPES[x].noSearch);
     if (!types.length) throw new Error(`Invalid media_types. Options: ${Object.keys(TYPES).join(", ")}`);
     const mode = input.mode || "compact";
     if (mode !== "compact" && mode !== "inline" && mode !== "overlay") throw new Error("mode must be 'compact' or 'inline'");
@@ -533,21 +541,26 @@ export class MaBrowserCard extends LitElement {
     const { t } = this;
     const { item, type } = page;
     const sub = subtitle(item, type);
-    const songs = type !== "artist" && page.status === "ok" && page.items.length;
+    const podcast = type === "podcast";
+    const count = type !== "artist" && page.status === "ok" && page.items.length;
     return html`<div class="page">
       <section class="page-head">
         ${this.renderArt(item, type, "h")}
         <div class="page-info">
           <div class="page-title">${item.name}</div>
           ${sub ? html`<div class="page-sub">${sub}</div>` : nothing}
-          ${songs ? html`<div class="page-count">${t("browser.songs", { n: page.items.length })}</div>` : nothing}
+          ${count ? html`<div class="page-count">${t(podcast ? "browser.episodes" : "browser.songs", { n: count })}</div>` : nothing}
           <div class="page-actions">
             <button class="pill primary" @click=${() => this.playPage(false)}>
               <ha-icon icon="mdi:play"></ha-icon>${t("browser.play")}
             </button>
-            <button class="pill" @click=${() => this.playPage(true)}>
-              <ha-icon icon="mdi:shuffle-variant"></ha-icon>${t("browser.shuffle")}
-            </button>
+            ${
+              podcast
+                ? nothing
+                : html`<button class="pill" @click=${() => this.playPage(true)}>
+                  <ha-icon icon="mdi:shuffle-variant"></ha-icon>${t("browser.shuffle")}
+                </button>`
+            }
             <button class="pill icon" aria-label=${t("browser.more")} @click=${() => this.openMenu({ it: item, s: "h", i: 0 })}>
               <ha-icon icon="mdi:dots-horizontal"></ha-icon>
             </button>
@@ -581,6 +594,8 @@ export class MaBrowserCard extends LitElement {
         <div class="grid">${page.items.map((it, i) => this.renderTile(it, i, "p"))}</div>`;
     }
     if (page.type === "playlist") return html`<div class="list">${page.items.map((it, i) => this.renderRow(it, i, "p"))}</div>`;
+    if (page.type === "podcast")
+      return html`<div class="list episodes">${page.items.map((it, i) => this.renderEpisode(it, i))}</div>`;
     const albumArtist = page.item.artists?.[0]?.name;
     return html`<div class="list tracks">
       ${page.items.map((it, i) => {
@@ -591,6 +606,33 @@ export class MaBrowserCard extends LitElement {
         </div>`;
       })}
     </div>`;
+  }
+
+  private renderEpisode(it: MaMediaItem, i: number) {
+    const date = this.fmtDate(it.release_date);
+    const length = fmtLength(Number(it.duration) || 0);
+    return html`<div class="row item episode" data-s="p" data-i=${i} role="button" tabindex="0" aria-label=${it.name}>
+      <div class="ep-play">
+        <ha-icon icon="mdi:play"></ha-icon>
+        <div class="fx ${this.fx.get(this.itemKey("p", it)) || ""}"></div>
+      </div>
+      <div class="meta">
+        ${date ? html`<div class="ep-date">${date}</div>` : nothing}
+        <div class="title">${it.name}</div>
+        ${length ? html`<div class="sub">${length}</div>` : nothing}
+      </div>
+      ${this.renderMore()}
+    </div>`;
+  }
+
+  private fmtDate(value: unknown): string {
+    const d = typeof value === "string" ? new Date(value) : null;
+    if (!d || Number.isNaN(d.getTime())) return "";
+    try {
+      return d.toLocaleDateString(this.uiLang || undefined, { day: "numeric", month: "short", year: "numeric" });
+    } catch (_) {
+      return d.toLocaleDateString();
+    }
   }
 
   private renderState(icon: string, title: string, text: string, extra: unknown = nothing) {
@@ -845,7 +887,7 @@ export class MaBrowserCard extends LitElement {
     const found = this.lookup(el);
     if (!found) return;
     const type = this.typeOf(found.it);
-    if (EXPANDABLE.has(type)) this.openPage(found.it, type);
+    if (this.backend.library.canBrowse(type)) this.openPage(found.it, type);
     else this.play(found);
   }
 
@@ -907,7 +949,7 @@ export class MaBrowserCard extends LitElement {
     const page = this.page;
     if (!page) return;
     const target = this.targetEntity;
-    if (!!this.hass?.states[target]?.attributes.shuffle !== shuffle) {
+    if (page.type !== "podcast" && !!this.hass?.states[target]?.attributes.shuffle !== shuffle) {
       try {
         await this.backend.player.setShuffle(target, shuffle);
       } catch (err) {

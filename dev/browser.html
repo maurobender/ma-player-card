@@ -27,6 +27,7 @@
     states: { "media_player.salon": { state: "idle", attributes: { friendly_name: "Salón" } },
       "media_player.cocina": { state: "playing", attributes: { friendly_name: "Cocina", media_title: "Bohemian Rhapsody", media_artist: "Queen" } },
       "media_player.dormitorio": { state: "unavailable", attributes: { friendly_name: "Dormitorio" } } },
+    services: new URLSearchParams(location.search).has("mq") ? { mass_queue: {} } : {},
     entities: { "media_player.salon": { platform: "music_assistant" }, "media_player.cocina": { platform: "music_assistant" },
       "media_player.dormitorio": { platform: "music_assistant" }, "media_player.tv": { platform: "cast" } },
     async callWS(msg) {
@@ -45,9 +46,13 @@
         const mk = (t, i) => ({ media_type: t, uri: `spotify://${t}/${i}`, name: `${q} ${t} ${i}`,
           image: i === 2 ? "https://invalid.example/x.jpg" : img(t + i),
           artists: [{ name: "Queen" }], album: { name: "A Night at the Opera" } });
-        const key = { track: "tracks", artist: "artists", album: "albums", playlist: "playlists", radio: "radio" }[msg.service_data.media_type];
+        const key = { track: "tracks", artist: "artists", album: "albums", playlist: "playlists", radio: "radio", podcast: "podcasts" }[msg.service_data.media_type];
         return { response: { [key]: Array.from({ length: 10 }, (_, i) => mk(msg.service_data.media_type, i)) } };
       }
+      if (msg.type === "config_entries/get") return [{ entry_id: msg.domain === "mass_queue" ? "MQ" : "XYZ", state: "loaded" }];
+      if (msg.domain === "mass_queue" && msg.service === "get_podcast_episodes")
+        return { response: { episodes: Array.from({ length: 15 }, (_, i) => ({ media_title: `Episodio ${15 - i}: una charla larga sobre ${msg.service_data.uri} que no entra en una línea`,
+          media_content_id: `library://podcast_episode/${i}`, media_image: img("ep" + i), duration: 600 + i * 431, release_date: new Date(Date.now() - i * 7 * 864e5).toISOString() })) } };
       if (msg.type === "media_player/browse_media") {
         const id = msg.media_content_id;
         if (id.includes("/9")) throw { code: "x", message: "Browse falló" };

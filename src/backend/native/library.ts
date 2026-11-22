@@ -57,6 +57,10 @@ export class NativeLibrary implements LibraryApi {
     return data.items || [];
   }
 
+  canBrowse(type: MediaType): boolean {
+    return type === "artist" || type === "album" || type === "playlist";
+  }
+
   // Home Assistant's media browser is the only way the official integration lists what's inside an item
   async browse(entity: string, { uri, mediaType }: { uri: string; mediaType: MediaType }): Promise<MaMediaItem[]> {
     const res = await this.hass().callWS<BrowseMedia>({

@@ -13,6 +13,8 @@ export interface MediaTypeInfo {
   round?: boolean;
   /** Can't be queued (radio). */
   noQueue?: boolean;
+  /** Not a search tab. */
+  noSearch?: boolean;
 }
 
 export interface HomeShelf {
@@ -32,9 +34,11 @@ export const TYPES: Record<MediaType, MediaTypeInfo> = {
   playlist: { key: "playlists", icon: "mdi:playlist-music", enqueue: "replace" },
   radio: { key: "radio", icon: "mdi:radio", enqueue: "replace", noQueue: true },
   podcast: { key: "podcasts", icon: "mdi:podcast", enqueue: "replace" },
+  /** Only listed inside a podcast; search has no episodes tab. */
+  podcast_episode: { key: "podcast_episodes", icon: "mdi:podcast", enqueue: "play", list: true, noSearch: true },
   audiobook: { key: "audiobooks", icon: "mdi:book-music", enqueue: "replace" },
 };
-export const DEFAULT_TYPES: MediaType[] = ["track", "artist", "album", "playlist", "radio"];
+export const DEFAULT_TYPES: MediaType[] = ["track", "artist", "album", "playlist", "radio", "podcast"];
 // order_by values from music_assistant/controllers/music/constants.py
 export const DEFAULT_HOME: HomeShelf[] = [
   { titleKey: "home.recent", media_type: "album", order_by: "last_played_desc" },

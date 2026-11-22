@@ -193,6 +193,14 @@ export const browserStyles = css`
   .num { position: relative; width: 28px; flex: 0 0 28px; text-align: center; font-size: 15px; font-variant-numeric: tabular-nums;
     color: var(--secondary-text-color); align-self: stretch; display: grid; place-items: center; container-type: inline-size; }
   .num .fx { border-radius: 6px; }
+  .episode { align-items: flex-start; padding: 12px 0; }
+  .episodes .row::after { left: 52px; }
+  .ep-play { position: relative; width: 40px; height: 40px; flex: 0 0 40px; margin-top: 2px; border-radius: 50%; overflow: hidden;
+    display: grid; place-items: center; background: var(--fill-strong); color: var(--accent-text); container-type: inline-size; }
+  .ep-play ha-icon { --mdc-icon-size: 22px; }
+  .ep-date { font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--secondary-text-color); margin-bottom: 2px; }
+  .episode .title { -webkit-line-clamp: 2; font-weight: 600; }
+  .episode .more { align-self: center; }
 
   /* Play feedback over the artwork */
   .fx { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gridLayout, subtitle } from "../src/cards/browser-card/browser-card.js";
+import { fmtLength, gridLayout, subtitle } from "../src/cards/browser-card/browser-card.js";
 
 describe("gridLayout", () => {
   it("picks columns from the width, at least two", () => {
@@ -36,6 +36,16 @@ describe("subtitle", () => {
     expect(subtitle({ uri: "p", name: "Mix", owner: "DJ" }, "playlist")).toBe("DJ");
     expect(subtitle({ uri: "p", name: "Mix" }, "playlist")).toBe("Playlist");
     expect(subtitle({ uri: "r", name: "FM" }, "radio")).toBe("Radio");
+    expect(subtitle({ uri: "c", name: "Show" }, "podcast")).toBe("Podcast");
     expect(subtitle({ uri: "x", name: "Queen", artists }, "artist")).toBe("");
+  });
+});
+
+describe("fmtLength", () => {
+  it("rounds to minutes and adds hours", () => {
+    expect(fmtLength(0)).toBe("");
+    expect(fmtLength(2700)).toBe("45 min");
+    expect(fmtLength(3600)).toBe("1 h");
+    expect(fmtLength(3900)).toBe("1 h 5 min");
   });
 });

@@ -8,7 +8,7 @@
 
 import type { RepeatMode } from "../models/hass.js";
 
-export type MediaType = "track" | "artist" | "album" | "playlist" | "radio" | "podcast" | "audiobook";
+export type MediaType = "track" | "artist" | "album" | "playlist" | "radio" | "podcast" | "podcast_episode" | "audiobook";
 
 export type Enqueue = "play" | "replace" | "next" | "replace_next" | "add";
 
@@ -71,7 +71,9 @@ export interface LibraryQuery {
 export interface LibraryApi {
   search(query: string, type: MediaType, options: SearchOptions): Promise<MaMediaItem[]>;
   getLibrary(query: LibraryQuery): Promise<MaMediaItem[]>;
-  /** The tracks of an album or playlist, or the albums of an artist. */
+  /** Whether `browse` can list what's inside items of this type. */
+  canBrowse(type: MediaType): boolean;
+  /** The tracks of an album or playlist, the albums of an artist, or the episodes of a podcast. */
   browse(entity: string, item: { uri: string; mediaType: MediaType }): Promise<MaMediaItem[]>;
   /** Several URIs play in order, e.g. an album from one of its tracks. */
   play(entity: string, item: { uri: string | string[]; mediaType: MediaType }, enqueue: Enqueue): Promise<void>;

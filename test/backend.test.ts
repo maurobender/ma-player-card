@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { BackendHolder, createBackend, resolveBackendName } from "../src/backend/backend.js";
+import { fromEpisode } from "../src/backend/mass-queue/library.js";
 import { moveSteps } from "../src/backend/mass-queue/queue.js";
 import { fromBrowseMedia, NativeLibrary } from "../src/backend/native/library.js";
 import { UnsupportedError } from "../src/backend/types.js";
@@ -307,5 +308,43 @@ describe("mass_queue cache", () => {
     expect((await p).map((x) => x.id)).toEqual(["q5"]);
     expect(tries).toBe(3);
     vi.useRealTimers();
+  });
+});
+
+describe("podcast episodes", () => {
+  it("only lists them with mass_queue, through its own config entry", async () => {
+    const hass = fakeHass({
+      services: { mass_queue: {} },
+      onWs: (msg) => {
+        if (msg.type === "config_entries/get") return [{ entry_id: "MQ", state: "loaded" }];
+        if (msg.service === "get_podcast_episodes")
+          return {
+            response: { episodes: [{ media_title: "Ep 1", media_content_id: "library://podcast_episode/1", duration: 60 }] },
+          };
+        return {};
+      },
+    });
+    expect(createBackend(() => hass, "native", { entity: ENT }).library.canBrowse("podcast")).toBe(false);
+    const library = createBackend(() => hass, "mass_queue", { entity: ENT }).library;
+    expect(library.canBrowse("podcast")).toBe(true);
+    const items = await library.browse(ENT, { uri: "library://podcast/7", mediaType: "podcast" });
+    expect(items.map((x) => [x.uri, x.media_type])).toEqual([["library://podcast_episode/1", "podcast_episode"]]);
+    expect(hass.calls.find((c) => c.service === "get_podcast_episodes")?.msg?.service_data).toEqual({
+      config_entry_id: "MQ",
+      uri: "library://podcast/7",
+    });
+  });
+
+  it("maps mass_queue's episode fields", () => {
+    expect(
+      fromEpisode({ media_content_id: "u", media_title: "T", release_date: "2026-11-01", local_image_encoded: "AAA" }),
+    ).toEqual({
+      uri: "u",
+      name: "T",
+      media_type: "podcast_episode",
+      image: "data:image/jpeg;base64,AAA",
+      duration: 0,
+      release_date: "2026-11-01",
+    });
   });
 });

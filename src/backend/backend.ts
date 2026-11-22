@@ -1,11 +1,12 @@
 /*
  * Builds the backend part by part:
- *   library and player  → always the official integration (mass_queue has neither)
+ *   library and player  → the official integration (with mass_queue, the library also lists podcast episodes)
  *   queue and favorites → mass_queue when installed (or forced), otherwise the official one
  */
 
 import type { Hass, HassGetter } from "../models/hass.js";
 import { MassQueueFavorites } from "./mass-queue/favorites.js";
+import { MassQueueLibrary } from "./mass-queue/library.js";
 import { MassQueueQueue } from "./mass-queue/queue.js";
 import { NativeFavorites } from "./native/favorites.js";
 import { NativeLibrary } from "./native/library.js";
@@ -30,10 +31,11 @@ export function createBackend(hass: HassGetter, name: BackendName, options: Back
   const nativeQueue = new NativeQueue(hass);
   const queue = name === "mass_queue" ? new MassQueueQueue(hass, nativeQueue) : nativeQueue;
   const favorites = name === "mass_queue" ? new MassQueueFavorites(hass) : new NativeFavorites(hass);
+  const nativeLibrary = new NativeLibrary(hass, options.entity, options.configEntryId);
   return {
     name,
     can: { ...queue.can, unfavorite: favorites.canUnfavorite },
-    library: new NativeLibrary(hass, options.entity, options.configEntryId),
+    library: name === "mass_queue" ? new MassQueueLibrary(hass, nativeLibrary) : nativeLibrary,
     queue,
     favorites,
     player: new HaPlayer(hass),
