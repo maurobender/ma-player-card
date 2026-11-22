@@ -41,6 +41,7 @@ export const TYPES: Record<MediaType, MediaTypeInfo> = {
 export const DEFAULT_TYPES: MediaType[] = ["track", "artist", "album", "playlist", "radio", "podcast"];
 // order_by values from music_assistant/controllers/music/constants.py
 export const DEFAULT_HOME: HomeShelf[] = [
+  { titleKey: "home.recent_tracks", media_type: "track", order_by: "last_played_desc" },
   { titleKey: "home.recent", media_type: "album", order_by: "last_played_desc" },
   { titleKey: "home.playlists", media_type: "playlist", favorite: true, order_by: "favorite_timestamp_desc" },
   { titleKey: "home.artists", media_type: "artist", favorite: true, order_by: "favorite_timestamp_desc" },

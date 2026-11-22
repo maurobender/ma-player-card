@@ -199,7 +199,10 @@ The defaults, with titles in your language:
 
 ```yaml
 home:
-  - title: Recently played
+  - title: Recently played songs
+    media_type: track
+    order_by: last_played_desc
+  - title: Recently played albums
     media_type: album
     order_by: last_played_desc
   - title: Your playlists

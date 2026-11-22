@@ -24,7 +24,8 @@ export const en = {
   "state.buffering": "Buffering",
   "state.unavailable": "Unavailable",
 
-  "home.recent": "Recently played",
+  "home.recent": "Recently played albums",
+  "home.recent_tracks": "Recently played songs",
   "home.playlists": "Your playlists",
   "home.artists": "Favorite artists",
   "home.albums": "Favorite albums",

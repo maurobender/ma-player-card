@@ -26,7 +26,8 @@ export const es: Translations = {
   "state.buffering": "Cargando",
   "state.unavailable": "No disponible",
 
-  "home.recent": "Escuchado recientemente",
+  "home.recent": "Álbumes escuchados recientemente",
+  "home.recent_tracks": "Canciones escuchadas recientemente",
   "home.playlists": "Tus playlists",
   "home.artists": "Artistas favoritos",
   "home.albums": "Álbumes favoritos",
