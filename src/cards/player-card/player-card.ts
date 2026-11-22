@@ -8,6 +8,7 @@ import { BackendHolder } from "../../backend/backend.js";
 import { errorMessage } from "../../backend/call.js";
 import type { MaBackend, PlayerApi, QueueInfo } from "../../backend/types.js";
 import type { MaActionSheet } from "../../components/action-sheet.js";
+import { MarqueeGroup } from "../../components/marquee.js";
 import { OverlayHistory } from "../../components/overlay-history.js";
 import { pickSpeaker } from "../../components/speaker-picker.js";
 import { accentColor } from "../../components/theme.js";
@@ -96,6 +97,8 @@ export class MaPlayerCard extends LitElement {
   private readonly instanceId = `ma-player-${nextInstanceId()}`;
   private readonly backends = new BackendHolder(() => this.hass as Hass);
   private readonly clock = new PlaybackClock((msg) => this.log(msg));
+  /** The title and artist of the full screen player scroll together. */
+  private readonly titleMarquee = new MarqueeGroup();
   private uiLang = "";
   private t: Translate = translator("en");
   private trackKey = "";
@@ -428,8 +431,8 @@ export class MaPlayerCard extends LitElement {
           <div class="np-panel">
             <div class="np-titlerow">
               <div class="np-text">
-                <div class="np-title">${has ? a.media_title : t("player.nothing_playing")}</div>
-                <div class="np-artist">${has ? [a.media_artist, a.media_album_name].filter(Boolean).join(" — ") : ""}</div>
+                <ma-marquee class="np-title" .group=${this.titleMarquee} .text=${has ? a.media_title || "" : t("player.nothing_playing")}></ma-marquee>
+                <ma-marquee class="np-artist" .group=${this.titleMarquee} .text=${has ? [a.media_artist, a.media_album_name].filter(Boolean).join(" — ") : ""}></ma-marquee>
               </div>
               ${
                 showFav

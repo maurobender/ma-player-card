@@ -10,6 +10,7 @@ import { MaPlayerCard } from "./cards/player-card/player-card.js";
 import { MaPlayerLyrics } from "./cards/player-card/player-lyrics.js";
 import { MaPlayerQueue } from "./cards/player-card/player-queue.js";
 import { MaActionSheet } from "./components/action-sheet.js";
+import { MaMarquee } from "./components/marquee.js";
 import { MaSlider } from "./components/slider.js";
 import { MaToast } from "./components/toast.js";
 import { VERSION } from "./version.js";
@@ -35,6 +36,7 @@ const defineOnce = (name: string, cls: CustomElementConstructor) => {
 defineOnce("ma-player-toast", MaToast);
 defineOnce("ma-player-action-sheet", MaActionSheet);
 defineOnce("ma-slider", MaSlider);
+defineOnce("ma-marquee", MaMarquee);
 defineOnce("ma-player-queue", MaPlayerQueue);
 defineOnce("ma-player-lyrics", MaPlayerLyrics);
 defineOnce("ma-browser-card", MaBrowserCard);

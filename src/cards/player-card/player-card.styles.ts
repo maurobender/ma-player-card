@@ -77,7 +77,9 @@ export const playerStyles = css`
   .np-bg { position: absolute; inset: -15%; background: #2c2c2e center / cover no-repeat;
     filter: blur(70px) saturate(1.6) brightness(.8); transform: translateZ(0); }
   .np-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, .08), rgba(0, 0, 0, .45)); }
+  /* minmax(0, 1fr): an auto column would grow to fit a long title that can't wrap */
   .np-inner { position: relative; height: 100%; box-sizing: border-box; display: grid; gap: 14px;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto; grid-template-areas: "top" "stage" "panel";
     padding: max(8px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
              max(20px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
