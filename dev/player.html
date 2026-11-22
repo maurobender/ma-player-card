@@ -49,6 +49,9 @@
         if (service === "remove_queue_item") Q.splice(k, 1);
         if (service === "move_queue_item_up" && k > CUR + 1) [Q[k - 1], Q[k]] = [Q[k], Q[k - 1]];
         if (service === "move_queue_item_down" && k < Q.length - 1) [Q[k + 1], Q[k]] = [Q[k], Q[k + 1]];
+        if (service === "clear_queue_from_here") Q.splice(CUR + 1);
+        // Like mass_queue: its cached queue is empty for a moment after every change
+        window.cacheEmptyUntil = Date.now() + 700;
         if (service === "move_queue_item_next") { const [x] = Q.splice(k, 1); Q.splice(CUR + 1, 0, x); }
         if (service === "play_queue_item") { CUR = k; hass.states["media_player.salon"].attributes.media_title = Q[k].name; }
         if (service === "unfavorite_current_item") Q[CUR].fav = false;
@@ -76,6 +79,7 @@
       }
       if (msg.domain === "mass_queue" && msg.service === "get_queue_items") {
         const d = msg.service_data;
+        if (Date.now() < (window.cacheEmptyUntil || 0)) return { response: { [d.entity]: [] } };
         return { response: { [d.entity]: Q.slice(d.offset, d.offset + d.limit).map((x) => ({ queue_item_id: x.id, media_title: x.name, media_artist: x.artist, media_album_name: "", media_image: x.img, favorite: x.fav })) } };
       }
       if (msg.type === "config/entity_registry/get") return { platform: "music_assistant", config_entry_id: "XYZ" };

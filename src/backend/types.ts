@@ -88,6 +88,9 @@ export interface QueueApi {
   moveTo(entity: string, id: string, from: number, to: number): Promise<void>;
   remove(entity: string, id: string): Promise<void>;
   play(entity: string, id: string): Promise<void>;
+  /** Whether `clear` keeps the current song playing; otherwise it empties the whole queue and stops. */
+  readonly clearKeepsCurrent: boolean;
+  clear(entity: string): Promise<void>;
 }
 
 export interface FavoritesApi {

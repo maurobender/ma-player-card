@@ -123,6 +123,7 @@ The card talks to Music Assistant through a *backend*. The interface stays the s
 | Tap a song to jump to it | — | ✓ |
 | Drag ≡ to reorder | — | ✓ |
 | Remove from the queue (⊖) | — | ✓ |
+| *Clear* the queue (tap twice) | ✓ empties the whole queue and stops playback | ✓ removes the upcoming songs, the current one keeps playing |
 | ♥ add to favorites | ✓ | ✓ |
 | ♥ remove from favorites | — | ✓ (library songs only) |
 | Song durations in the queue | ✓ | — (mass_queue doesn't report them) |
@@ -185,6 +186,7 @@ speaker_selector: true   # button to choose which speaker plays
   - Tapping a song plays it and the rest of the album or playlist after it.
   - *Back* (the button at the top or Android's *back*) goes up one level.
 - **Long-press** (or tap **⋯**) for *Play now*, *Play next* (`next`) and *Add to queue* (`add`), without opening the item.
+  Songs also have *Clear queue and play* (`replace`).
   Radio only has *Play now*.
 
 ### Home view (`home`)
@@ -305,9 +307,9 @@ Music Assistant actions the cards use:
 | `music_assistant.play_media` | Play | target `entity_id`*, `media_id`* (URI, or a list of them), `media_type`, `enqueue` (`play`, `replace`, `next`, `replace_next`, `add`) |
 | `media_player/browse_media` (WebSocket) | Artist, album and playlist pages | `entity_id`*, `media_content_id`* (URI), `media_content_type`* |
 | `music_assistant.get_queue` | Queue (read-only) and favorite state | target `entity_id`*, `limit`, `offset` |
-| `media_player.*` | Controls | `media_play_pause`, `media_previous_track`, `media_next_track`, `media_seek`, `volume_set`, `volume_mute`, `shuffle_set`, `repeat_set` |
+| `media_player.*` | Controls | `media_play_pause`, `media_previous_track`, `media_next_track`, `media_seek`, `volume_set`, `volume_mute`, `shuffle_set`, `repeat_set`, `clear_playlist` |
 | `button.press` | ♥ Favorite | The *Favorite current song* button Music Assistant adds to each player |
-| `mass_queue.*` (optional) | Edit the queue, remove a favorite | `get_queue_items`, `move_queue_item_up/down/next`, `remove_queue_item`, `play_queue_item`, `unfavorite_current_item` (an `entity` field, not a target) |
+| `mass_queue.*` (optional) | Edit the queue, remove a favorite | `get_queue_items`, `move_queue_item_up/down/next`, `remove_queue_item`, `play_queue_item`, `clear_queue_from_here`, `unfavorite_current_item` (an `entity` field, not a target) |
 
 `config_entry_id` is detected from the entity, or can be set in the YAML.
 

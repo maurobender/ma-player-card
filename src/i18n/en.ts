@@ -50,6 +50,7 @@ export const en = {
   "browser.albums": "Albums",
   "browser.page_empty": "Nothing here",
   "browser.play_now": "Play now",
+  "browser.replace_queue": "Clear queue and play",
   "browser.play_next": "Play next",
   "browser.add_to_queue": "Add to queue",
   "browser.queued_next": "Plays next",
@@ -97,6 +98,9 @@ export const en = {
   "queue.partial":
     "Your Home Assistant version only reports the next song. The full list comes with a newer version of the integration, or by installing mass_queue.",
   "queue.hint": "Tap a song to play it · drag ≡ to move it.",
+  "queue.clear": "Clear",
+  "queue.clear_confirm": "Clear up next?",
+  "queue.clear_all_confirm": "Clear and stop?",
   "queue.remove": "Remove from queue",
   "queue.drag": "Drag to move",
   "queue.move": "Move song",

@@ -52,6 +52,7 @@ export const es: Translations = {
   "browser.albums": "Álbumes",
   "browser.page_empty": "No hay nada acá",
   "browser.play_now": "Reproducir ahora",
+  "browser.replace_queue": "Borrar la cola y reproducir",
   "browser.play_next": "Reproducir a continuación",
   "browser.add_to_queue": "Agregar a la cola",
   "browser.queued_next": "Suena a continuación",
@@ -99,6 +100,9 @@ export const es: Translations = {
   "queue.partial":
     "Tu versión de Home Assistant solo informa la próxima canción. La lista completa llega con una versión más nueva de la integración, o instalando mass_queue.",
   "queue.hint": "Tocá una canción para escucharla · arrastrá ≡ para moverla.",
+  "queue.clear": "Borrar",
+  "queue.clear_confirm": "¿Borrar la cola?",
+  "queue.clear_all_confirm": "¿Borrar y detener?",
   "queue.remove": "Quitar de la cola",
   "queue.drag": "Arrastrar para mover",
   "queue.move": "Mover canción",

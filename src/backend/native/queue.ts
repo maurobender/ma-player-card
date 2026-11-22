@@ -94,4 +94,10 @@ export class NativeQueue implements QueueApi {
   async play(): Promise<void> {
     throw new UnsupportedError("The official integration cannot jump to a song in the queue");
   }
+
+  readonly clearKeepsCurrent = false;
+
+  async clear(entity: string): Promise<void> {
+    await this.hass().callService("media_player", "clear_playlist", { entity_id: entity });
+  }
 }

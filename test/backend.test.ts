@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BackendHolder, createBackend, resolveBackendName } from "../src/backend/backend.js";
 import { moveSteps } from "../src/backend/mass-queue/queue.js";
 import { fromBrowseMedia, NativeLibrary } from "../src/backend/native/library.js";
@@ -274,5 +274,38 @@ describe("fromBrowseMedia", () => {
       image: null,
       artists: [],
     });
+  });
+});
+
+describe("clearing the queue", () => {
+  it("uses clear_playlist on the official integration and clear_queue_from_here with mass_queue", async () => {
+    const hass = fakeHass({ services: { mass_queue: {} } });
+    await createBackend(() => hass, "native", { entity: ENT }).queue.clear(ENT);
+    await createBackend(() => hass, "mass_queue", { entity: ENT }).queue.clear(ENT);
+    expect(hass.calls.map((c) => [`${c.domain}.${c.service}`, c.data])).toEqual([
+      ["media_player.clear_playlist", { entity_id: ENT }],
+      ["mass_queue.clear_queue_from_here", { entity: ENT }],
+    ]);
+  });
+});
+
+describe("mass_queue cache", () => {
+  it("retries while mass_queue answers with an empty queue after a change", async () => {
+    vi.useFakeTimers();
+    let tries = 0;
+    const hass = fakeHass({
+      services: { mass_queue: {} },
+      onWs: (msg) => {
+        if (msg.domain !== "mass_queue") return {};
+        tries++;
+        return { response: { [ENT]: tries < 3 ? [] : [{ queue_item_id: "q5", media_title: "Canción 5" }] } };
+      },
+    });
+    const queue = createBackend(() => hass, "mass_queue", { entity: ENT }).queue;
+    const p = queue.items(ENT, { current: null, next: null, idx: 4, total: 10 }, 50);
+    await vi.runAllTimersAsync();
+    expect((await p).map((x) => x.id)).toEqual(["q5"]);
+    expect(tries).toBe(3);
+    vi.useRealTimers();
   });
 });

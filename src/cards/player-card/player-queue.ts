@@ -51,6 +51,7 @@ export class MaPlayerQueue extends LitElement {
     queue: { state: true },
     status: { state: true },
     error: { state: true },
+    confirmClear: { state: true },
   };
 
   declare backend?: MaBackend;
@@ -60,6 +61,8 @@ export class MaPlayerQueue extends LitElement {
   declare queue: QueueState | null;
   declare status: Status;
   declare error: string;
+  /** The clear button was tapped once and waits for a second tap. */
+  declare confirmClear: boolean;
 
   private t: Translate = translator("en");
   private drag: Drag | null = null;
@@ -67,6 +70,7 @@ export class MaPlayerQueue extends LitElement {
   private busy = false;
   /** Swallows the click that follows a drag. */
   private justDragged = false;
+  private confirmTimer?: ReturnType<typeof setTimeout>;
 
   constructor() {
     super();
@@ -75,6 +79,13 @@ export class MaPlayerQueue extends LitElement {
     this.queue = null;
     this.status = "idle";
     this.error = "";
+    this.confirmClear = false;
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    clearTimeout(this.confirmTimer);
+    this.confirmClear = false;
   }
 
   async refresh(withItems = true): Promise<void> {
@@ -121,7 +132,16 @@ export class MaPlayerQueue extends LitElement {
     const partial = backend.queue.partial;
     return html`
       ${q.current ? html`<div class="sec">${t("queue.now_playing")}</div>${this.row(q.current, -1)}` : nothing}
-      <div class="sec">${t("queue.up_next")} <span>· ${t("queue.songs", { n: left })}</span></div>
+      <div class="sec">
+        ${t("queue.up_next")} <span>· ${t("queue.songs", { n: left })}</span>
+        ${
+          left > 0 || !backend.queue.clearKeepsCurrent
+            ? html`<button class="clear ${this.confirmClear ? "confirm" : ""}" @click=${this.onClear}>
+              ${this.confirmClear ? t(backend.queue.clearKeepsCurrent ? "queue.clear_confirm" : "queue.clear_all_confirm") : t("queue.clear")}
+            </button>`
+            : nothing
+        }
+      </div>
       <div class="list">
         ${
           q.upcoming.length
@@ -252,6 +272,27 @@ export class MaPlayerQueue extends LitElement {
     );
   }
 
+  /** Two taps: the first asks for confirmation for a few seconds. */
+  private onClear = (): void => {
+    const { queue: q, backend } = this;
+    if (!q || !backend) return;
+    clearTimeout(this.confirmTimer);
+    if (!this.confirmClear) {
+      this.confirmClear = true;
+      haptic(this, "selection");
+      this.confirmTimer = setTimeout(() => (this.confirmClear = false), 4000);
+      return;
+    }
+    this.confirmClear = false;
+    haptic(this, "medium");
+    const keep = backend.queue.clearKeepsCurrent;
+    this.apply(
+      this.t("queue.clear"),
+      keep ? { ...q, upcoming: [], total: q.idx + 1 } : { current: null, upcoming: [], total: 0, idx: -1 },
+      (be, entity) => be.queue.clear(entity),
+    );
+  };
+
   private move(from: number, to: number): void {
     const q = this.queue;
     if (!q) return;
@@ -310,6 +351,26 @@ export class MaPlayerQueue extends LitElement {
       margin: 22px 0 6px;
       font-size: 16px;
       font-weight: 700;
+    }
+    .sec {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+    .clear {
+      margin-left: auto;
+      border: 0;
+      padding: 4px 0 4px 12px;
+      background: none;
+      color: var(--accent, #fa2d48);
+      font: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .clear.confirm {
+      color: #ff6b6b;
     }
     .sec span {
       font-weight: 400;

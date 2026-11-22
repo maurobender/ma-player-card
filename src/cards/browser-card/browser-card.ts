@@ -984,10 +984,13 @@ export class MaBrowserCard extends LitElement {
     const type = this.typeOf(it);
     const info = TYPES[type];
     const { t } = this;
+    // Songs play without touching the queue; albums and songs inside a page already replace it
+    const canReplace = info.enqueue === "play" && found.s !== "p";
     const key = await sheet.show({
       header: { title: it.name, subtitle: subtitle(it, type), image: it.image || undefined, icon: info.icon, round: info.round },
       actions: [
         { key: "now", label: t("browser.play_now"), icon: "mdi:play" },
+        ...(canReplace ? [{ key: "replace", label: t("browser.replace_queue"), icon: "mdi:playlist-remove" }] : []),
         ...(info.noQueue
           ? []
           : [
@@ -997,7 +1000,7 @@ export class MaBrowserCard extends LitElement {
       ],
       cancelLabel: t("common.cancel"),
     });
-    if (key === "next" || key === "add") this.play(found, key);
+    if (key === "next" || key === "add" || key === "replace") this.play(found, key);
     else if (key === "now") this.play(found);
   }
 

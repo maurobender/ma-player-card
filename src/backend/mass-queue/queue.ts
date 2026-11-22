@@ -26,6 +26,10 @@ export function fromMassQueue(x: MassQueueItem): QueueItem {
   };
 }
 
+/** Waits between tries while mass_queue rebuilds its cache. */
+const CACHE_RETRY_MS = [300, 600, 1200, 2400];
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /** mass_queue can only move a song one step up, one step down, or to play next. */
 export function moveSteps(from: number, to: number): ("up" | "down" | "next")[] {
   if (from === to) return [];
@@ -54,12 +58,25 @@ export class MassQueueQueue implements QueueApi {
     return this.native.info(entity);
   }
 
+  /**
+   * After every change mass_queue clears its cached copy of the queue until it finishes reloading it,
+   * so an empty answer while Music Assistant reports songs ahead is retried a few times.
+   */
   async items(entity: string, info: QueueInfo, limit: number): Promise<QueueItem[]> {
     if (info.total <= info.idx + 1) return [];
+    for (const wait of [0, ...CACHE_RETRY_MS]) {
+      if (wait) await sleep(wait);
+      const items = await this.fetchItems(entity, info.idx + 1, limit);
+      if (items.length) return items;
+    }
+    return [];
+  }
+
+  private async fetchItems(entity: string, offset: number, limit: number): Promise<QueueItem[]> {
     // mass_queue takes the player as an `entity` field, not as a target
     const r = await callWithResponse<Record<string, unknown>>(this.hass(), "mass_queue", "get_queue_items", {
       entity,
-      offset: info.idx + 1,
+      offset,
       limit,
     });
     const list = forEntity<MassQueueItem[] | Record<string, unknown>>(r, entity);
@@ -76,5 +93,12 @@ export class MassQueueQueue implements QueueApi {
 
   play(entity: string, id: string): Promise<void> {
     return this.call("play_queue_item", { entity, queue_item_id: id });
+  }
+
+  readonly clearKeepsCurrent = true;
+
+  /** Removes the songs after the current one. */
+  clear(entity: string): Promise<void> {
+    return this.call("clear_queue_from_here", { entity });
   }
 }
